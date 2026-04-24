@@ -3,13 +3,23 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Sourdough Bread Ordering Business Manager API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: baker
+    description: Baker dashboard operations (protected)
+  - name: products
+    description: Product management
+  - name: baking-days
+    description: Baking schedule management
+  - name: orders
+    description: Order management
+  - name: webhooks
+    description: External webhook endpoints
 paths:
   /healthz:
     get:
@@ -24,6 +34,253 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /baker/summary:
+    get:
+      operationId: getBakerSummary
+      tags: [baker]
+      summary: Get dashboard summary
+      description: Returns overview stats for the baker dashboard
+      responses:
+        "200":
+          description: Summary data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BakerSummary"
+        "401":
+          description: Unauthorized
+
+  /baker/products:
+    get:
+      operationId: listProducts
+      tags: [products]
+      summary: List all products
+      responses:
+        "200":
+          description: List of products
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Product"
+    post:
+      operationId: createProduct
+      tags: [products]
+      summary: Create a new product
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateProductBody"
+      responses:
+        "201":
+          description: Created product
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+        "400":
+          description: Validation error
+
+  /baker/products/{id}:
+    patch:
+      operationId: updateProduct
+      tags: [products]
+      summary: Update a product
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateProductBody"
+      responses:
+        "200":
+          description: Updated product
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+        "404":
+          description: Not found
+
+  /baker/baking-days:
+    get:
+      operationId: listBakingDays
+      tags: [baking-days]
+      summary: List all baking days (upcoming and past)
+      parameters:
+        - name: upcoming
+          in: query
+          required: false
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: List of baking days with order counts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BakingDayWithStats"
+    post:
+      operationId: createBakingDay
+      tags: [baking-days]
+      summary: Create a new baking day
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateBakingDayBody"
+      responses:
+        "201":
+          description: Created baking day
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BakingDay"
+        "400":
+          description: Validation error
+
+  /baker/baking-days/{id}:
+    patch:
+      operationId: updateBakingDay
+      tags: [baking-days]
+      summary: Update a baking day's availability
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateBakingDayBody"
+      responses:
+        "200":
+          description: Updated baking day
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BakingDay"
+        "404":
+          description: Not found
+    delete:
+      operationId: deleteBakingDay
+      tags: [baking-days]
+      summary: Delete a baking day
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+
+  /baker/orders:
+    get:
+      operationId: listOrders
+      tags: [orders]
+      summary: List all orders with optional filters
+      parameters:
+        - name: bakingDayId
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [pending_payment, paid, cancelled]
+      responses:
+        "200":
+          description: List of orders
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/OrderWithDetails"
+
+  /baker/orders/{id}/cancel:
+    patch:
+      operationId: cancelOrder
+      tags: [orders]
+      summary: Manually cancel an order
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Cancelled order
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+        "404":
+          description: Not found
+
+  /whatsapp/webhook:
+    post:
+      operationId: whatsappWebhook
+      tags: [webhooks]
+      summary: Twilio WhatsApp inbound webhook
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                From:
+                  type: string
+                Body:
+                  type: string
+      responses:
+        "200":
+          description: TwiML response
+          content:
+            text/xml:
+              schema:
+                type: string
+
+  /yoco/webhook:
+    post:
+      operationId: yocoWebhook
+      tags: [webhooks]
+      summary: Yoco payment webhook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: OK
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +291,222 @@ components:
       required:
         - status
 
+    Product:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: ["string", "null"]
+        priceCents:
+          type: integer
+        active:
+          type: boolean
+      required:
+        - id
+        - name
+        - priceCents
+        - active
+
+    CreateProductBody:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: ["string", "null"]
+        priceCents:
+          type: integer
+        active:
+          type: boolean
+      required:
+        - name
+        - priceCents
+
+    UpdateProductBody:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: ["string", "null"]
+        priceCents:
+          type: integer
+        active:
+          type: boolean
+
+    BakingDay:
+      type: object
+      properties:
+        id:
+          type: integer
+        date:
+          type: string
+        productId:
+          type: integer
+        totalAvailable:
+          type: integer
+        reservedCount:
+          type: integer
+      required:
+        - id
+        - date
+        - productId
+        - totalAvailable
+        - reservedCount
+
+    BakingDayWithStats:
+      type: object
+      properties:
+        id:
+          type: integer
+        date:
+          type: string
+        productId:
+          type: integer
+        totalAvailable:
+          type: integer
+        reservedCount:
+          type: integer
+        paidCount:
+          type: integer
+        pendingCount:
+          type: integer
+        remaining:
+          type: integer
+        productName:
+          type: string
+      required:
+        - id
+        - date
+        - productId
+        - totalAvailable
+        - reservedCount
+        - paidCount
+        - pendingCount
+        - remaining
+        - productName
+
+    CreateBakingDayBody:
+      type: object
+      properties:
+        date:
+          type: string
+          description: ISO date string (YYYY-MM-DD)
+        productId:
+          type: integer
+        totalAvailable:
+          type: integer
+      required:
+        - date
+        - productId
+        - totalAvailable
+
+    UpdateBakingDayBody:
+      type: object
+      properties:
+        totalAvailable:
+          type: integer
+        date:
+          type: string
+
+    Order:
+      type: object
+      properties:
+        id:
+          type: integer
+        whatsappNumber:
+          type: string
+        customerName:
+          type: ["string", "null"]
+        bakingDayId:
+          type: integer
+        quantity:
+          type: integer
+        status:
+          type: string
+          enum: [pending_payment, paid, cancelled]
+        yocoPaymentId:
+          type: ["string", "null"]
+        yocoCheckoutId:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required:
+        - id
+        - whatsappNumber
+        - bakingDayId
+        - quantity
+        - status
+        - createdAt
+        - updatedAt
+
+    OrderWithDetails:
+      type: object
+      properties:
+        id:
+          type: integer
+        whatsappNumber:
+          type: string
+        customerName:
+          type: ["string", "null"]
+        bakingDayId:
+          type: integer
+        bakingDayDate:
+          type: string
+        quantity:
+          type: integer
+        status:
+          type: string
+          enum: [pending_payment, paid, cancelled]
+        yocoPaymentId:
+          type: ["string", "null"]
+        yocoCheckoutId:
+          type: ["string", "null"]
+        totalAmountCents:
+          type: integer
+        productName:
+          type: string
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required:
+        - id
+        - whatsappNumber
+        - bakingDayId
+        - bakingDayDate
+        - quantity
+        - status
+        - totalAmountCents
+        - productName
+        - createdAt
+        - updatedAt
+
+    BakerSummary:
+      type: object
+      properties:
+        totalOrdersToday:
+          type: integer
+        paidToday:
+          type: integer
+        pendingToday:
+          type: integer
+        upcomingDays:
+          type: array
+          items:
+            $ref: "#/components/schemas/BakingDayWithStats"
+        recentOrders:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderWithDetails"
+      required:
+        - totalOrdersToday
+        - paidToday
+        - pendingToday
+        - upcomingDays
+        - recentOrders
