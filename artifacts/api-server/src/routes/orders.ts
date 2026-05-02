@@ -181,22 +181,25 @@ router.post("/baker/orders", requireBakerAuth, async (req, res): Promise<void> =
     return;
   }
 
-  const [order] = await db
-    .insert(ordersTable)
-    .values({
-      whatsappNumber,
-      customerName: customerName ?? null,
-      bakingDayId,
-      quantity,
-      status: "pending_payment",
-      yocoCheckoutId: checkoutId,
-    })
-    .returning();
-
-  await db
-    .update(bakingDaysTable)
-    .set({ reservedCount: sql`${bakingDaysTable.reservedCount} + ${quantity}` })
-    .where(eq(bakingDaysTable.id, bakingDayId));
+  // reservedCount: incremented atomically with order insert to prevent race-condition overbooking.
+  const [order] = await db.transaction(async (tx) => {
+    const [inserted] = await tx
+      .insert(ordersTable)
+      .values({
+        whatsappNumber,
+        customerName: customerName ?? null,
+        bakingDayId,
+        quantity,
+        status: "pending_payment",
+        yocoCheckoutId: checkoutId,
+      })
+      .returning();
+    await tx
+      .update(bakingDaysTable)
+      .set({ reservedCount: sql`${bakingDaysTable.reservedCount} + ${quantity}` })
+      .where(eq(bakingDaysTable.id, bakingDayId));
+    return [inserted];
+  });
 
   try {
     await notifyCustomerManualOrder({
@@ -246,16 +249,18 @@ router.patch("/baker/orders/:id/cancel", requireBakerAuth, async (req, res): Pro
     return;
   }
 
-  await db
-    .update(bakingDaysTable)
-    .set({ reservedCount: sql`${bakingDaysTable.reservedCount} - ${order.quantity}` })
-    .where(eq(bakingDaysTable.id, order.bakingDayId));
-
-  const [updated] = await db
-    .update(ordersTable)
-    .set({ status: "cancelled", updatedAt: new Date() })
-    .where(eq(ordersTable.id, params.data.id))
-    .returning();
+  // Cancel + reservedCount decrement are atomic to prevent inventory leaking on partial failure.
+  const [updated] = await db.transaction(async (tx) => {
+    await tx
+      .update(bakingDaysTable)
+      .set({ reservedCount: sql`${bakingDaysTable.reservedCount} - ${order.quantity}` })
+      .where(eq(bakingDaysTable.id, order.bakingDayId));
+    return tx
+      .update(ordersTable)
+      .set({ status: "cancelled", updatedAt: new Date() })
+      .where(eq(ordersTable.id, params.data.id))
+      .returning();
+  });
 
   res.json({ ...updated, createdAt: updated.createdAt.toISOString(), updatedAt: updated.updatedAt.toISOString() });
 });

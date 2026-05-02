@@ -53,17 +53,19 @@ export async function handleIncomingMessage(from: string, body: string): Promise
         .then((rows) => rows[0]);
 
       if (pendingOrder) {
-        await db
-          .update(ordersTable)
-          .set({ status: "cancelled", updatedAt: new Date() })
-          .where(eq(ordersTable.id, pendingOrder.id));
-
-        await db
-          .update(bakingDaysTable)
-          .set({ reservedCount: sql`${bakingDaysTable.reservedCount} - ${pendingOrder.quantity}` })
-          .where(eq(bakingDaysTable.id, pendingOrder.bakingDayId));
-
-        logger.info({ orderId: pendingOrder.id, phoneNumber }, "Order cancelled by customer via WhatsApp");
+        // Cancel + reservedCount decrement are atomic to prevent inventory leaking on partial failure.
+        const { id: orderId, bakingDayId: dayId, quantity: qty } = pendingOrder;
+        await db.transaction(async (tx) => {
+          await tx
+            .update(ordersTable)
+            .set({ status: "cancelled", updatedAt: new Date() })
+            .where(eq(ordersTable.id, orderId));
+          await tx
+            .update(bakingDaysTable)
+            .set({ reservedCount: sql`${bakingDaysTable.reservedCount} - ${qty}` })
+            .where(eq(bakingDaysTable.id, dayId));
+        });
+        logger.info({ orderId, phoneNumber }, "Order cancelled by customer via WhatsApp");
       }
     }
 
@@ -242,6 +244,11 @@ async function handleQuantitySelection(phoneNumber: string, input: string, pendi
     return;
   }
 
+  // Extract to consts so TypeScript narrowing is preserved inside async lambdas (transactions).
+  const pendingBakingDayId: number = pending.bakingDayId;
+  const pendingPriceCents: number = pending.priceCents;
+  const pendingBakingDayDate: string | undefined = pending.bakingDayDate;
+
   const quantity = parseInt(input, 10);
   if (isNaN(quantity) || quantity < 1) {
     await sendWhatsAppMessage(phoneNumber, "Please reply with a valid number of loaves (e.g. 1, 2, 3...).");
@@ -251,7 +258,7 @@ async function handleQuantitySelection(phoneNumber: string, input: string, pendi
   const [bakingDay] = await db
     .select()
     .from(bakingDaysTable)
-    .where(eq(bakingDaysTable.id, pending.bakingDayId));
+    .where(eq(bakingDaysTable.id, pendingBakingDayId));
 
   if (!bakingDay) {
     await sendWhatsAppMessage(phoneNumber, "Sorry, that baking day is no longer available. Please start over.");
@@ -268,7 +275,7 @@ async function handleQuantitySelection(phoneNumber: string, input: string, pendi
     return;
   }
 
-  const totalCents = quantity * pending.priceCents;
+  const totalCents = quantity * pendingPriceCents;
   const totalFormatted = (totalCents / 100).toFixed(2);
 
   let paymentLink = "";
@@ -277,7 +284,7 @@ async function handleQuantitySelection(phoneNumber: string, input: string, pendi
   try {
     const checkout = await createYocoCheckout(totalCents, "ZAR", {
       phoneNumber,
-      bakingDayId: String(pending.bakingDayId),
+      bakingDayId: String(pendingBakingDayId),
       quantity: String(quantity),
     });
     paymentLink = checkout.redirectUrl;
@@ -291,26 +298,31 @@ async function handleQuantitySelection(phoneNumber: string, input: string, pendi
     return;
   }
 
-  const [order] = await db
-    .insert(ordersTable)
-    .values({
-      whatsappNumber: phoneNumber,
-      bakingDayId: pending.bakingDayId,
-      quantity,
-      status: "pending_payment",
-      yocoCheckoutId: checkoutId,
-    })
-    .returning();
-
-  await db
-    .update(bakingDaysTable)
-    .set({ reservedCount: sql`${bakingDaysTable.reservedCount} + ${quantity}` })
-    .where(eq(bakingDaysTable.id, pending.bakingDayId));
+  // reservedCount semantics: incremented on pending_payment creation (pending+paid),
+  // decremented on cancel. This prevents overbooking during the payment window.
+  // Customer-visible availability uses SUM(paid quantities) only (paidLoaves above).
+  const [order] = await db.transaction(async (tx) => {
+    const [inserted] = await tx
+      .insert(ordersTable)
+      .values({
+        whatsappNumber: phoneNumber,
+        bakingDayId: pendingBakingDayId,
+        quantity,
+        status: "pending_payment",
+        yocoCheckoutId: checkoutId,
+      })
+      .returning();
+    await tx
+      .update(bakingDaysTable)
+      .set({ reservedCount: sql`${bakingDaysTable.reservedCount} + ${quantity}` })
+      .where(eq(bakingDaysTable.id, pendingBakingDayId));
+    return [inserted];
+  });
 
   await updateState(phoneNumber, "awaiting_payment", {
-    bakingDayId: pending.bakingDayId,
+    bakingDayId: pendingBakingDayId,
     quantity,
-    priceCents: pending.priceCents,
+    priceCents: pendingPriceCents,
   });
 
   logger.info({ orderId: order.id, phoneNumber }, "Order created, awaiting payment");
@@ -319,7 +331,7 @@ async function handleQuantitySelection(phoneNumber: string, input: string, pendi
 
   await sendWhatsAppMessage(
     phoneNumber,
-    `✅ Almost done! Here's your order summary:\n\n📅 *${pending.bakingDayDate}*\n📍 *${pickupAddress}*\n🍞 *${quantity}* sourdough loaf(ves)\n💰 *R${totalFormatted}* total\n\nPlease complete your payment here:\n${paymentLink}\n\n_Your spot is reserved for 24 hours. Reply *cancel* to cancel._`
+    `✅ Almost done! Here's your order summary:\n\n📅 *${pendingBakingDayDate ?? bakingDay.date}*\n📍 *${pickupAddress}*\n🍞 *${quantity}* sourdough loaf(ves)\n💰 *R${totalFormatted}* total\n\nPlease complete your payment here:\n${paymentLink}\n\n_Your spot is reserved for 24 hours. Reply *cancel* to cancel._`
   );
 }
 

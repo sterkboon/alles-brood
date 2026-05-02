@@ -40,11 +40,16 @@ app.use(cors({
 }));
 
 if (process.env.NODE_ENV === "production") {
-  if (!process.env.TWILIO_AUTH_TOKEN) {
-    logger.warn("TWILIO_AUTH_TOKEN is not set — WhatsApp webhook signature verification is DISABLED");
-  }
-  if (!process.env.YOCO_WEBHOOK_SECRET) {
-    logger.warn("YOCO_WEBHOOK_SECRET is not set — Yoco webhook signature verification is DISABLED");
+  const missingSecrets: string[] = [];
+  if (!process.env.TWILIO_AUTH_TOKEN) missingSecrets.push("TWILIO_AUTH_TOKEN");
+  if (!process.env.YOCO_WEBHOOK_SECRET) missingSecrets.push("YOCO_WEBHOOK_SECRET");
+  if (missingSecrets.length > 0) {
+    logger.error(
+      { missingSecrets },
+      "Required webhook secrets are not set — refusing to start in production. " +
+      "Webhook signature verification would be disabled, allowing unauthenticated requests."
+    );
+    process.exit(1);
   }
 }
 
