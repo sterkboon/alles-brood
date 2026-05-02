@@ -75,17 +75,16 @@ router.post("/yoco/webhook", async (req, res): Promise<void> => {
 
   const paymentId = payload?.payload?.id ?? checkoutId;
 
-  // Mark paid + reset conversation state atomically so a crash between the two
-  // does not leave the customer stuck in awaiting_payment with a confirmed order.
   await db.transaction(async (tx) => {
     await tx
       .update(ordersTable)
-      .set({
-        status: "paid",
-        yocoPaymentId: paymentId,
-        updatedAt: new Date(),
-      })
+      .set({ status: "paid", yocoPaymentId: paymentId, updatedAt: new Date() })
       .where(eq(ordersTable.id, order.id));
+    // reserved_count tracks pending orders only; decrement now that payment is confirmed.
+    await tx
+      .update(bakingDaysTable)
+      .set({ reservedCount: sql`${bakingDaysTable.reservedCount} - ${order.quantity}` })
+      .where(eq(bakingDaysTable.id, order.bakingDayId));
     await tx
       .update(conversationStateTable)
       .set({ step: "idle", pendingOrderData: null, updatedAt: new Date() })

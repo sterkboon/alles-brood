@@ -53,17 +53,20 @@ export async function handleIncomingMessage(from: string, body: string): Promise
         .then((rows) => rows[0]);
 
       if (pendingOrder) {
-        // Cancel + reservedCount decrement are atomic to prevent inventory leaking on partial failure.
         const { id: orderId, bakingDayId: dayId, quantity: qty } = pendingOrder;
         await db.transaction(async (tx) => {
-          await tx
+          // Guard with status check to prevent double-cancel race condition.
+          const cancelled = await tx
             .update(ordersTable)
             .set({ status: "cancelled", updatedAt: new Date() })
-            .where(eq(ordersTable.id, orderId));
-          await tx
-            .update(bakingDaysTable)
-            .set({ reservedCount: sql`${bakingDaysTable.reservedCount} - ${qty}` })
-            .where(eq(bakingDaysTable.id, dayId));
+            .where(and(eq(ordersTable.id, orderId), eq(ordersTable.status, "pending_payment")))
+            .returning();
+          if (cancelled.length > 0) {
+            await tx
+              .update(bakingDaysTable)
+              .set({ reservedCount: sql`${bakingDaysTable.reservedCount} - ${qty}` })
+              .where(eq(bakingDaysTable.id, dayId));
+          }
         });
         logger.info({ orderId, phoneNumber }, "Order cancelled by customer via WhatsApp");
       }
@@ -141,8 +144,6 @@ async function handleIdle(phoneNumber: string): Promise<void> {
       date: bakingDaysTable.date,
       totalAvailable: bakingDaysTable.totalAvailable,
       reservedCount: bakingDaysTable.reservedCount,
-      // paidLoaves: loaves visibly consumed (shown to customers — availability only reduces once paid)
-      // Uses SUM(quantity) not COUNT(*) so multi-loaf orders reduce the visible count correctly.
       paidLoaves: sql<number>`COALESCE((SELECT SUM(quantity) FROM ${ordersTable} WHERE ${ordersTable.bakingDayId} = ${bakingDaysTable.id} AND ${ordersTable.status} = 'paid'), 0)`,
       productName: productsTable.name,
       priceCents: productsTable.priceCents,
@@ -152,8 +153,7 @@ async function handleIdle(phoneNumber: string): Promise<void> {
     .where(
       and(
         gte(bakingDaysTable.date, cutoff48h),
-        // Capacity guard uses reservedCount (pending+paid) to prevent overbooking
-        sql`${bakingDaysTable.totalAvailable} > ${bakingDaysTable.reservedCount}`
+        sql`${bakingDaysTable.totalAvailable} > ${bakingDaysTable.reservedCount} + COALESCE((SELECT SUM(${ordersTable.quantity}) FROM ${ordersTable} WHERE ${ordersTable.bakingDayId} = ${bakingDaysTable.id} AND ${ordersTable.status} = 'paid'), 0)`
       )
     )
     .orderBy(bakingDaysTable.date)
@@ -171,7 +171,6 @@ async function handleIdle(phoneNumber: string): Promise<void> {
     .map((d, i) => {
       const date = new Date(d.date + "T00:00:00");
       const formatted = date.toLocaleDateString("en-ZA", { weekday: "long", day: "numeric", month: "long" });
-      // Show paid-only loaf count to customers: availability only reduces visibly once paid
       const visible = d.totalAvailable - Number(d.paidLoaves);
       return `${i + 1}. *${formatted}* — ${visible} loaf(ves) available`;
     })
@@ -194,8 +193,6 @@ async function handleDateSelection(phoneNumber: string, input: string, _pending:
       date: bakingDaysTable.date,
       totalAvailable: bakingDaysTable.totalAvailable,
       reservedCount: bakingDaysTable.reservedCount,
-      // paidLoaves: loaves visibly consumed (shown to customers — availability only reduces once paid)
-      // Uses SUM(quantity) not COUNT(*) so multi-loaf orders reduce the visible count correctly.
       paidLoaves: sql<number>`COALESCE((SELECT SUM(quantity) FROM ${ordersTable} WHERE ${ordersTable.bakingDayId} = ${bakingDaysTable.id} AND ${ordersTable.status} = 'paid'), 0)`,
       productName: productsTable.name,
       priceCents: productsTable.priceCents,
@@ -205,8 +202,7 @@ async function handleDateSelection(phoneNumber: string, input: string, _pending:
     .where(
       and(
         gte(bakingDaysTable.date, cutoff48h),
-        // Capacity guard uses reservedCount (pending+paid) to prevent overbooking
-        sql`${bakingDaysTable.totalAvailable} > ${bakingDaysTable.reservedCount}`
+        sql`${bakingDaysTable.totalAvailable} > ${bakingDaysTable.reservedCount} + COALESCE((SELECT SUM(${ordersTable.quantity}) FROM ${ordersTable} WHERE ${ordersTable.bakingDayId} = ${bakingDaysTable.id} AND ${ordersTable.status} = 'paid'), 0)`
       )
     )
     .orderBy(bakingDaysTable.date)
@@ -220,7 +216,6 @@ async function handleDateSelection(phoneNumber: string, input: string, _pending:
   }
 
   const chosen = availableDays[idx];
-  // Show paid-only loaf count to customers: availability only reduces visibly once paid
   const visible = chosen.totalAvailable - Number(chosen.paidLoaves);
   const date = new Date(chosen.date + "T00:00:00");
   const formatted = date.toLocaleDateString("en-ZA", { weekday: "long", day: "numeric", month: "long" });
@@ -244,7 +239,6 @@ async function handleQuantitySelection(phoneNumber: string, input: string, pendi
     return;
   }
 
-  // Extract to consts so TypeScript narrowing is preserved inside async lambdas (transactions).
   const pendingBakingDayId: number = pending.bakingDayId;
   const pendingPriceCents: number = pending.priceCents;
   const pendingBakingDayDate: string | undefined = pending.bakingDayDate;
@@ -256,7 +250,13 @@ async function handleQuantitySelection(phoneNumber: string, input: string, pendi
   }
 
   const [bakingDay] = await db
-    .select()
+    .select({
+      id: bakingDaysTable.id,
+      date: bakingDaysTable.date,
+      totalAvailable: bakingDaysTable.totalAvailable,
+      reservedCount: bakingDaysTable.reservedCount,
+      paidLoaves: sql<number>`COALESCE((SELECT SUM(${ordersTable.quantity}) FROM ${ordersTable} WHERE ${ordersTable.bakingDayId} = ${bakingDaysTable.id} AND ${ordersTable.status} = 'paid'), 0)`,
+    })
     .from(bakingDaysTable)
     .where(eq(bakingDaysTable.id, pendingBakingDayId));
 
@@ -266,7 +266,8 @@ async function handleQuantitySelection(phoneNumber: string, input: string, pendi
     return;
   }
 
-  const remaining = bakingDay.totalAvailable - bakingDay.reservedCount;
+  // reserved_count = pending only; also subtract paid loaves from remaining capacity.
+  const remaining = bakingDay.totalAvailable - bakingDay.reservedCount - Number(bakingDay.paidLoaves);
   if (quantity > remaining) {
     await sendWhatsAppMessage(
       phoneNumber,
@@ -298,9 +299,6 @@ async function handleQuantitySelection(phoneNumber: string, input: string, pendi
     return;
   }
 
-  // reservedCount semantics: incremented on pending_payment creation (pending+paid),
-  // decremented on cancel. This prevents overbooking during the payment window.
-  // Customer-visible availability uses SUM(paid quantities) only (paidLoaves above).
   const [order] = await db.transaction(async (tx) => {
     const [inserted] = await tx
       .insert(ordersTable)

@@ -131,6 +131,7 @@ router.post("/baker/orders", requireBakerAuth, async (req, res): Promise<void> =
       totalAvailable: bakingDaysTable.totalAvailable,
       reservedCount: bakingDaysTable.reservedCount,
       productId: bakingDaysTable.productId,
+      paidLoaves: sql<number>`COALESCE((SELECT SUM(quantity) FROM orders WHERE baking_day_id = ${bakingDaysTable.id} AND status = 'paid'), 0)`,
     })
     .from(bakingDaysTable)
     .where(eq(bakingDaysTable.id, bakingDayId));
@@ -145,7 +146,7 @@ router.post("/baker/orders", requireBakerAuth, async (req, res): Promise<void> =
     return;
   }
 
-  const remaining = bakingDay.totalAvailable - bakingDay.reservedCount;
+  const remaining = bakingDay.totalAvailable - bakingDay.reservedCount - Number(bakingDay.paidLoaves);
   if (quantity > remaining) {
     res.status(422).json({ error: `Only ${remaining} loaf(ves) remaining for that day.` });
     return;
@@ -181,7 +182,6 @@ router.post("/baker/orders", requireBakerAuth, async (req, res): Promise<void> =
     return;
   }
 
-  // reservedCount: incremented atomically with order insert to prevent race-condition overbooking.
   const [order] = await db.transaction(async (tx) => {
     const [inserted] = await tx
       .insert(ordersTable)
@@ -249,12 +249,15 @@ router.patch("/baker/orders/:id/cancel", requireBakerAuth, async (req, res): Pro
     return;
   }
 
-  // Cancel + reservedCount decrement are atomic to prevent inventory leaking on partial failure.
   const [updated] = await db.transaction(async (tx) => {
-    await tx
-      .update(bakingDaysTable)
-      .set({ reservedCount: sql`${bakingDaysTable.reservedCount} - ${order.quantity}` })
-      .where(eq(bakingDaysTable.id, order.bakingDayId));
+    // Only decrement reserved_count if cancelling a pending order.
+    // Paid orders were already decremented from reserved_count at payment time.
+    if (order.status === "pending_payment") {
+      await tx
+        .update(bakingDaysTable)
+        .set({ reservedCount: sql`${bakingDaysTable.reservedCount} - ${order.quantity}` })
+        .where(eq(bakingDaysTable.id, order.bakingDayId));
+    }
     return tx
       .update(ordersTable)
       .set({ status: "cancelled", updatedAt: new Date() })

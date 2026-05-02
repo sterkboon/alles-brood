@@ -31,6 +31,7 @@ router.get("/baker/baking-days", requireBakerAuth, async (req, res): Promise<voi
       productName: productsTable.name,
       paidCount: sql<number>`COUNT(CASE WHEN ${ordersTable.status} = 'paid' THEN 1 END)::int`,
       pendingCount: sql<number>`COUNT(CASE WHEN ${ordersTable.status} = 'pending_payment' THEN 1 END)::int`,
+      paidLoaves: sql<number>`COALESCE(SUM(CASE WHEN ${ordersTable.status} = 'paid' THEN ${ordersTable.quantity} ELSE 0 END), 0)::int`,
     })
     .from(bakingDaysTable)
     .innerJoin(productsTable, eq(bakingDaysTable.productId, productsTable.id))
@@ -47,7 +48,7 @@ router.get("/baker/baking-days", requireBakerAuth, async (req, res): Promise<voi
 
   const result = rows.map((row) => ({
     ...row,
-    remaining: row.totalAvailable - row.reservedCount,
+    remaining: row.totalAvailable - row.reservedCount - row.paidLoaves,
     editable: isAtLeast48HoursAway(row.date),
   }));
 
