@@ -54,6 +54,23 @@ export interface BakingDayWithStats {
   productName: string;
 }
 
+export interface CreateOrderBody {
+  /** Customer WhatsApp number with country code (e.g. +27821234567) */
+  whatsappNumber: string;
+  /**
+   * Optional customer name
+   * @nullable
+   */
+  customerName?: string | null;
+  /** ID of the baking day to order for */
+  bakingDayId: number;
+  /**
+   * Number of loaves
+   * @minimum 1
+   */
+  quantity: number;
+}
+
 export interface CreateBakingDayBody {
   /** ISO date string (YYYY-MM-DD) */
   date: string;
@@ -143,6 +160,10 @@ export const ListOrdersStatus = {
   paid: "paid",
   cancelled: "cancelled",
 } as const;
+
+export type CreateOrder201 = OrderWithDetails & {
+  paymentLink?: string;
+};
 
 export type WhatsappWebhookBody = {
   From?: string;

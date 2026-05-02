@@ -181,6 +181,42 @@ export const ListOrdersResponseItem = zod.object({
 export const ListOrdersResponse = zod.array(ListOrdersResponseItem);
 
 /**
+ * @summary Create a manual order for a customer (baker-initiated)
+ */
+
+export const CreateOrderBody = zod.object({
+  whatsappNumber: zod
+    .string()
+    .describe("Customer WhatsApp number with country code (e.g. +27821234567)"),
+  customerName: zod.string().nullish().describe("Optional customer name"),
+  bakingDayId: zod.number().describe("ID of the baking day to order for"),
+  quantity: zod.number().min(1).describe("Number of loaves"),
+});
+
+/**
+ * @summary Get a single order by ID
+ */
+export const GetOrderParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const GetOrderResponse = zod.object({
+  id: zod.number(),
+  whatsappNumber: zod.string(),
+  customerName: zod.string().nullish(),
+  bakingDayId: zod.number(),
+  bakingDayDate: zod.string(),
+  quantity: zod.number(),
+  status: zod.enum(["pending_payment", "paid", "cancelled"]),
+  yocoPaymentId: zod.string().nullish(),
+  yocoCheckoutId: zod.string().nullish(),
+  totalAmountCents: zod.number(),
+  productName: zod.string(),
+  createdAt: zod.string(),
+  updatedAt: zod.string(),
+});
+
+/**
  * @summary Manually cancel an order
  */
 export const CancelOrderParams = zod.object({

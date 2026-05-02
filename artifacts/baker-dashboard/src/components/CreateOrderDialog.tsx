@@ -1,13 +1,12 @@
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useAuth } from "@clerk/react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { useListBakingDays } from "@workspace/api-client-react";
+import { useListBakingDays, useCreateOrder } from "@workspace/api-client-react";
 import { format, parseISO } from "date-fns";
 
 interface Props {
@@ -15,28 +14,7 @@ interface Props {
   onOpenChange: (open: boolean) => void;
 }
 
-async function createOrderApi(
-  body: { whatsappNumber: string; customerName: string; bakingDayId: number; quantity: number },
-  getToken: () => Promise<string | null>
-) {
-  const token = await getToken();
-  const res = await fetch("/api/baker/orders", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error ?? "Failed to create order");
-  }
-  return res.json();
-}
-
 export default function CreateOrderDialog({ open, onOpenChange }: Props) {
-  const { getToken } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -55,30 +33,22 @@ export default function CreateOrderDialog({ open, onOpenChange }: Props) {
   const selectedDay = eligibleDays.find((d) => String(d.id) === bakingDayId);
   const maxQty = selectedDay ? selectedDay.totalAvailable - selectedDay.reservedCount : 99;
 
-  const mutation = useMutation({
-    mutationFn: () =>
-      createOrderApi(
-        {
-          whatsappNumber: whatsappNumber.trim(),
-          customerName: customerName.trim(),
-          bakingDayId: Number(bakingDayId),
-          quantity: Number(quantity),
-        },
-        getToken
-      ),
-    onSuccess: () => {
-      toast({ title: "Order created", description: "WhatsApp notification sent to customer." });
-      queryClient.invalidateQueries({ queryKey: ["/api/baker/orders"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/baker/summary"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/baker/baking-days"] });
-      onOpenChange(false);
-      setWhatsappNumber("");
-      setCustomerName("");
-      setBakingDayId("");
-      setQuantity("1");
-    },
-    onError: (err: Error) => {
-      toast({ title: "Failed to create order", description: err.message, variant: "destructive" });
+  const mutation = useCreateOrder({
+    mutation: {
+      onSuccess: () => {
+        toast({ title: "Order created", description: "WhatsApp notification sent to customer." });
+        queryClient.invalidateQueries({ queryKey: ["/api/baker/orders"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/baker/summary"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/baker/baking-days"] });
+        onOpenChange(false);
+        setWhatsappNumber("");
+        setCustomerName("");
+        setBakingDayId("");
+        setQuantity("1");
+      },
+      onError: (err: Error) => {
+        toast({ title: "Failed to create order", description: err.message, variant: "destructive" });
+      },
     },
   });
 
@@ -163,7 +133,16 @@ export default function CreateOrderDialog({ open, onOpenChange }: Props) {
             Cancel
           </Button>
           <Button
-            onClick={() => mutation.mutate()}
+            onClick={() =>
+              mutation.mutate({
+                data: {
+                  whatsappNumber: whatsappNumber.trim(),
+                  customerName: customerName.trim() || undefined,
+                  bakingDayId: Number(bakingDayId),
+                  quantity: Number(quantity),
+                },
+              })
+            }
             disabled={!canSubmit || mutation.isPending}
           >
             {mutation.isPending ? "Creating…" : "Create & Notify Customer"}

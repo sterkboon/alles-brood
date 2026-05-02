@@ -10,6 +10,8 @@ export * from "./bakerSummary";
 export * from "./bakingDay";
 export * from "./bakingDayWithStats";
 export * from "./createBakingDayBody";
+export * from "./createOrder201";
+export * from "./createOrderBody";
 export * from "./createProductBody";
 export * from "./healthStatus";
 export * from "./listBakingDaysParams";

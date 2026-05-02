@@ -39,6 +39,15 @@ app.use(cors({
   origin: allowedOrigin ?? false,
 }));
 
+if (process.env.NODE_ENV === "production") {
+  if (!process.env.TWILIO_AUTH_TOKEN) {
+    logger.warn("TWILIO_AUTH_TOKEN is not set — WhatsApp webhook signature verification is DISABLED");
+  }
+  if (!process.env.YOCO_WEBHOOK_SECRET) {
+    logger.warn("YOCO_WEBHOOK_SECRET is not set — Yoco webhook signature verification is DISABLED");
+  }
+}
+
 app.use(express.json({
   verify: (req, _res, buf) => {
     (req as express.Request & { rawBody?: Buffer }).rawBody = buf;

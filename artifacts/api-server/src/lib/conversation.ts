@@ -139,6 +139,8 @@ async function handleIdle(phoneNumber: string): Promise<void> {
       date: bakingDaysTable.date,
       totalAvailable: bakingDaysTable.totalAvailable,
       reservedCount: bakingDaysTable.reservedCount,
+      // paidCount: slots visibly consumed (shown to customers per "availability only reduces once paid")
+      paidCount: sql<number>`(SELECT COUNT(*) FROM ${ordersTable} WHERE ${ordersTable.bakingDayId} = ${bakingDaysTable.id} AND ${ordersTable.status} = 'paid')`,
       productName: productsTable.name,
       priceCents: productsTable.priceCents,
     })
@@ -147,6 +149,7 @@ async function handleIdle(phoneNumber: string): Promise<void> {
     .where(
       and(
         gte(bakingDaysTable.date, cutoff48h),
+        // Capacity guard uses reservedCount (pending+paid) to prevent overbooking
         sql`${bakingDaysTable.totalAvailable} > ${bakingDaysTable.reservedCount}`
       )
     )
@@ -165,8 +168,9 @@ async function handleIdle(phoneNumber: string): Promise<void> {
     .map((d, i) => {
       const date = new Date(d.date + "T00:00:00");
       const formatted = date.toLocaleDateString("en-ZA", { weekday: "long", day: "numeric", month: "long" });
-      const remaining = d.totalAvailable - d.reservedCount;
-      return `${i + 1}. *${formatted}* — ${remaining} loaf(ves) available`;
+      // Show paid-only count to customers: availability only reduces visibly once paid
+      const visible = d.totalAvailable - Number(d.paidCount);
+      return `${i + 1}. *${formatted}* — ${visible} loaf(ves) available`;
     })
     .join("\n");
 
@@ -187,6 +191,8 @@ async function handleDateSelection(phoneNumber: string, input: string, _pending:
       date: bakingDaysTable.date,
       totalAvailable: bakingDaysTable.totalAvailable,
       reservedCount: bakingDaysTable.reservedCount,
+      // paidCount: slots visibly consumed (shown to customers per "availability only reduces once paid")
+      paidCount: sql<number>`(SELECT COUNT(*) FROM ${ordersTable} WHERE ${ordersTable.bakingDayId} = ${bakingDaysTable.id} AND ${ordersTable.status} = 'paid')`,
       productName: productsTable.name,
       priceCents: productsTable.priceCents,
     })
@@ -195,6 +201,7 @@ async function handleDateSelection(phoneNumber: string, input: string, _pending:
     .where(
       and(
         gte(bakingDaysTable.date, cutoff48h),
+        // Capacity guard uses reservedCount (pending+paid) to prevent overbooking
         sql`${bakingDaysTable.totalAvailable} > ${bakingDaysTable.reservedCount}`
       )
     )
@@ -209,7 +216,8 @@ async function handleDateSelection(phoneNumber: string, input: string, _pending:
   }
 
   const chosen = availableDays[idx];
-  const remaining = chosen.totalAvailable - chosen.reservedCount;
+  // Show paid-only count to customers: availability only reduces visibly once paid
+  const visible = chosen.totalAvailable - Number(chosen.paidCount);
   const date = new Date(chosen.date + "T00:00:00");
   const formatted = date.toLocaleDateString("en-ZA", { weekday: "long", day: "numeric", month: "long" });
   const priceFormatted = (chosen.priceCents / 100).toFixed(2);
@@ -222,7 +230,7 @@ async function handleDateSelection(phoneNumber: string, input: string, _pending:
 
   await sendWhatsAppMessage(
     phoneNumber,
-    `Great choice! 🍞 You've selected *${formatted}*.\n\n*${chosen.productName}* — R${priceFormatted} each\n\nHow many loaves would you like? (max ${remaining} available)\n\nReply with a *number*.`
+    `Great choice! 🍞 You've selected *${formatted}*.\n\n*${chosen.productName}* — R${priceFormatted} each\n\nHow many loaves would you like? (max ${visible} available)\n\nReply with a *number*.`
   );
 }
 
