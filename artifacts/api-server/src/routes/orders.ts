@@ -74,6 +74,47 @@ router.get("/baker/orders", requireBakerAuth, async (req, res): Promise<void> =>
   res.json(result);
 });
 
+router.get("/baker/orders/:id", requireBakerAuth, async (req, res): Promise<void> => {
+  const id = parseInt(String(req.params.id), 10);
+  if (isNaN(id) || id < 1) {
+    res.status(400).json({ error: "Invalid order ID" });
+    return;
+  }
+
+  const [row] = await db
+    .select({
+      id: ordersTable.id,
+      whatsappNumber: ordersTable.whatsappNumber,
+      customerName: ordersTable.customerName,
+      bakingDayId: ordersTable.bakingDayId,
+      bakingDayDate: bakingDaysTable.date,
+      quantity: ordersTable.quantity,
+      status: ordersTable.status,
+      yocoPaymentId: ordersTable.yocoPaymentId,
+      yocoCheckoutId: ordersTable.yocoCheckoutId,
+      productName: productsTable.name,
+      priceCents: productsTable.priceCents,
+      createdAt: ordersTable.createdAt,
+      updatedAt: ordersTable.updatedAt,
+    })
+    .from(ordersTable)
+    .innerJoin(bakingDaysTable, eq(ordersTable.bakingDayId, bakingDaysTable.id))
+    .innerJoin(productsTable, eq(bakingDaysTable.productId, productsTable.id))
+    .where(eq(ordersTable.id, id));
+
+  if (!row) {
+    res.status(404).json({ error: "Order not found" });
+    return;
+  }
+
+  res.json({
+    ...row,
+    totalAmountCents: row.quantity * row.priceCents,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  });
+});
+
 router.post("/baker/orders", requireBakerAuth, async (req, res): Promise<void> => {
   const parsed = parseCreateOrderBody(req.body);
   if (!parsed) {

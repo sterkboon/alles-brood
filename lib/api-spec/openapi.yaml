@@ -251,6 +251,29 @@ paths:
         "422":
           description: Business rule violation (48h cutoff, capacity exceeded)
 
+  /baker/orders/{id}:
+    get:
+      operationId: getOrder
+      tags: [orders]
+      summary: Get a single order by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Order detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderWithDetails"
+        "404":
+          description: Not found
+        "401":
+          description: Unauthorized
+
   /baker/orders/{id}/cancel:
     patch:
       operationId: cancelOrder

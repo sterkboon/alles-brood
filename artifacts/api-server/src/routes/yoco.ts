@@ -22,7 +22,13 @@ router.post("/yoco/webhook", async (req, res): Promise<void> => {
 
   if (webhookSecret) {
     const signature = req.headers["x-yoco-signature"] as string | undefined;
-    const rawBody: Buffer = (req as unknown as { rawBody?: Buffer }).rawBody ?? Buffer.from(JSON.stringify(req.body));
+    const rawBody: Buffer | undefined = (req as unknown as { rawBody?: Buffer }).rawBody;
+
+    if (!rawBody) {
+      logger.error("Raw body not captured for Yoco webhook — cannot verify signature");
+      res.status(400).json({ error: "Cannot verify webhook: raw body unavailable" });
+      return;
+    }
 
     if (!verifyYocoSignature(rawBody, signature, webhookSecret)) {
       logger.warn({ signature }, "Yoco webhook signature verification failed");
