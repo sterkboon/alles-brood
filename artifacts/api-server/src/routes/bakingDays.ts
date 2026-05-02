@@ -141,6 +141,19 @@ router.delete("/baker/baking-days/:id", requireBakerAuth, async (req, res): Prom
     return;
   }
 
+  const [linkedOrders] = await db
+    .select({ count: sql<number>`COUNT(*)` })
+    .from(ordersTable)
+    .where(and(
+      eq(ordersTable.bakingDayId, params.data.id),
+      sql`${ordersTable.status} NOT IN ('cancelled')`
+    ));
+
+  if (Number(linkedOrders?.count ?? 0) > 0) {
+    res.status(422).json({ error: "Cannot delete a baking day that has active orders. Cancel all orders first." });
+    return;
+  }
+
   await db.delete(bakingDaysTable).where(eq(bakingDaysTable.id, params.data.id));
   res.sendStatus(204);
 });
