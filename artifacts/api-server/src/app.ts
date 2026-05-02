@@ -30,7 +30,15 @@ app.use(
 
 app.use(CLERK_PROXY_PATH, clerkProxyMiddleware());
 
-app.use(cors({ credentials: true, origin: true }));
+const allowedOrigin = process.env.CORS_ORIGIN;
+if (!allowedOrigin) {
+  logger.warn("CORS_ORIGIN not set — cross-origin requests will be blocked (same-origin only)");
+}
+app.use(cors({
+  credentials: true,
+  origin: allowedOrigin ?? false,
+}));
+
 app.use(express.json({
   verify: (req, _res, buf) => {
     (req as express.Request & { rawBody?: Buffer }).rawBody = buf;
