@@ -62,7 +62,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         </nav>
 
         <div className="p-4 border-t border-sidebar-border flex items-center gap-3">
-          <UserButton afterSignOutUrl={`${basePath}/`} />
+          <UserButton />
           <span className="text-xs text-muted-foreground">Signed in</span>
         </div>
       </aside>

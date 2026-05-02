@@ -38,6 +38,35 @@ export async function handleIncomingMessage(from: string, body: string): Promise
   }
 
   if (trimmed === "cancel" || trimmed === "stop") {
+    if (state.step === "awaiting_payment") {
+      const pendingOrder = await db
+        .select()
+        .from(ordersTable)
+        .where(
+          and(
+            eq(ordersTable.whatsappNumber, phoneNumber),
+            eq(ordersTable.status, "pending_payment")
+          )
+        )
+        .orderBy(sql`${ordersTable.createdAt} DESC`)
+        .limit(1)
+        .then((rows) => rows[0]);
+
+      if (pendingOrder) {
+        await db
+          .update(ordersTable)
+          .set({ status: "cancelled", updatedAt: new Date() })
+          .where(eq(ordersTable.id, pendingOrder.id));
+
+        await db
+          .update(bakingDaysTable)
+          .set({ reservedCount: sql`${bakingDaysTable.reservedCount} - ${pendingOrder.quantity}` })
+          .where(eq(bakingDaysTable.id, pendingOrder.bakingDayId));
+
+        logger.info({ orderId: pendingOrder.id, phoneNumber }, "Order cancelled by customer via WhatsApp");
+      }
+    }
+
     await updateState(phoneNumber, "idle", null);
     await sendWhatsAppMessage(phoneNumber, "No problem! Your order has been cancelled. Reply *order* anytime to start a new order.");
     return;
@@ -118,7 +147,7 @@ async function handleIdle(phoneNumber: string): Promise<void> {
     .where(
       and(
         gte(bakingDaysTable.date, cutoff48h),
-        sql`${bakingDaysTable.total_available} > ${bakingDaysTable.reserved_count}`
+        sql`${bakingDaysTable.totalAvailable} > ${bakingDaysTable.reservedCount}`
       )
     )
     .orderBy(bakingDaysTable.date)
@@ -166,7 +195,7 @@ async function handleDateSelection(phoneNumber: string, input: string, _pending:
     .where(
       and(
         gte(bakingDaysTable.date, cutoff48h),
-        sql`${bakingDaysTable.total_available} > ${bakingDaysTable.reserved_count}`
+        sql`${bakingDaysTable.totalAvailable} > ${bakingDaysTable.reservedCount}`
       )
     )
     .orderBy(bakingDaysTable.date)

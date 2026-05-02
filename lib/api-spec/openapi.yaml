@@ -220,6 +220,36 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/OrderWithDetails"
+    post:
+      operationId: createOrder
+      tags: [orders]
+      summary: Create a manual order for a customer (baker-initiated)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateOrderBody"
+      responses:
+        "201":
+          description: Created order with payment link
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/OrderWithDetails"
+                  - type: object
+                    properties:
+                      paymentLink:
+                        type: string
+        "400":
+          description: Validation error
+        "401":
+          description: Unauthorized
+        "404":
+          description: Baking day not found
+        "422":
+          description: Business rule violation (48h cutoff, capacity exceeded)
 
   /baker/orders/{id}/cancel:
     patch:
@@ -388,6 +418,27 @@ components:
         - pendingCount
         - remaining
         - productName
+
+    CreateOrderBody:
+      type: object
+      properties:
+        whatsappNumber:
+          type: string
+          description: Customer WhatsApp number with country code (e.g. +27821234567)
+        customerName:
+          type: ["string", "null"]
+          description: Optional customer name
+        bakingDayId:
+          type: integer
+          description: ID of the baking day to order for
+        quantity:
+          type: integer
+          minimum: 1
+          description: Number of loaves
+      required:
+        - whatsappNumber
+        - bakingDayId
+        - quantity
 
     CreateBakingDayBody:
       type: object

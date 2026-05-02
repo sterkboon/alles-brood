@@ -8,7 +8,7 @@ export default function SignInPage() {
       <SignIn
         routing="path"
         path={`${basePath}/sign-in`}
-        afterSignInUrl={`${basePath}/dashboard`}
+        fallbackRedirectUrl={`${basePath}/dashboard`}
         appearance={{
           variables: {
             colorPrimary: "hsl(25, 65%, 42%)",

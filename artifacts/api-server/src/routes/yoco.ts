@@ -1,4 +1,5 @@
 import { Router, type IRouter } from "express";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
 import { db, ordersTable, bakingDaysTable, conversationStateTable } from "@workspace/db";
 import { sendWhatsAppMessage } from "../lib/twilio";
@@ -6,7 +7,32 @@ import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
+function verifyYocoSignature(rawBody: Buffer, signatureHeader: string | undefined, secret: string): boolean {
+  if (!signatureHeader) return false;
+  const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
+  try {
+    return timingSafeEqual(Buffer.from(signatureHeader, "hex"), Buffer.from(expected, "hex"));
+  } catch {
+    return false;
+  }
+}
+
 router.post("/yoco/webhook", async (req, res): Promise<void> => {
+  const webhookSecret = process.env.YOCO_WEBHOOK_SECRET;
+
+  if (webhookSecret) {
+    const signature = req.headers["x-yoco-signature"] as string | undefined;
+    const rawBody: Buffer = (req as unknown as { rawBody?: Buffer }).rawBody ?? Buffer.from(JSON.stringify(req.body));
+
+    if (!verifyYocoSignature(rawBody, signature, webhookSecret)) {
+      logger.warn({ signature }, "Yoco webhook signature verification failed");
+      res.status(401).json({ error: "Invalid webhook signature" });
+      return;
+    }
+  } else {
+    logger.warn("YOCO_WEBHOOK_SECRET not set — skipping signature verification (configure for production)");
+  }
+
   const payload = req.body;
 
   logger.info({ type: payload?.type }, "Yoco webhook received");

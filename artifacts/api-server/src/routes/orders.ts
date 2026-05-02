@@ -205,12 +205,10 @@ router.patch("/baker/orders/:id/cancel", requireBakerAuth, async (req, res): Pro
     return;
   }
 
-  if (order.status !== "cancelled") {
-    await db
-      .update(bakingDaysTable)
-      .set({ reservedCount: sql`${bakingDaysTable.reservedCount} - ${order.quantity}` })
-      .where(eq(bakingDaysTable.id, order.bakingDayId));
-  }
+  await db
+    .update(bakingDaysTable)
+    .set({ reservedCount: sql`${bakingDaysTable.reservedCount} - ${order.quantity}` })
+    .where(eq(bakingDaysTable.id, order.bakingDayId));
 
   const [updated] = await db
     .update(ordersTable)

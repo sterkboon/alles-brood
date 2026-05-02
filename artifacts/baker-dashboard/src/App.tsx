@@ -104,8 +104,6 @@ function App() {
   return (
     <ClerkProvider
       publishableKey={clerkPk}
-      afterSignInUrl={`${basePath}/dashboard`}
-      afterSignOutUrl={`${basePath}/`}
     >
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
