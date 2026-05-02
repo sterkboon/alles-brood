@@ -69,8 +69,40 @@ export async function handleIncomingMessage(from: string, body: string): Promise
   await handleIdle(phoneNumber);
 }
 
+export async function notifyCustomerManualOrder({
+  phoneNumber,
+  customerName,
+  bakingDayDate,
+  quantity,
+  totalAmountCents,
+  paymentLink,
+}: {
+  phoneNumber: string;
+  customerName: string | null | undefined;
+  bakingDayDate: string;
+  quantity: number;
+  totalAmountCents: number;
+  paymentLink: string;
+}): Promise<void> {
+  const date = new Date(bakingDayDate + "T00:00:00");
+  const formatted = date.toLocaleDateString("en-ZA", { weekday: "long", day: "numeric", month: "long" });
+  const totalFormatted = (totalAmountCents / 100).toFixed(2);
+  const pickupAddress = process.env.PICKUP_ADDRESS || "baker's address (to be confirmed)";
+  const greeting = customerName ? `Hi ${customerName}! ` : "Hi! ";
+
+  await sendWhatsAppMessage(
+    phoneNumber,
+    `${greeting}👋 Your sourdough order has been placed by the baker!\n\n📅 *Pickup: ${formatted}*\n📍 *${pickupAddress}*\n🍞 *${quantity}* sourdough loaf(ves)\n💰 *R${totalFormatted}* total\n\n⚠️ Your order will only be *confirmed once payment is received*.\n\nPlease complete your payment here:\n${paymentLink}\n\n_Reply *order* anytime to place a new order._`
+  );
+
+  await updateState(phoneNumber, "awaiting_payment", {
+    bakerCreated: true,
+    totalAmountCents,
+  });
+}
+
 async function handleIdle(phoneNumber: string): Promise<void> {
-  const today = new Date().toISOString().split("T")[0];
+  const cutoff48h = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString().split("T")[0];
 
   const availableDays = await db
     .select({
@@ -85,7 +117,7 @@ async function handleIdle(phoneNumber: string): Promise<void> {
     .innerJoin(productsTable, eq(bakingDaysTable.productId, productsTable.id))
     .where(
       and(
-        gte(bakingDaysTable.date, today),
+        gte(bakingDaysTable.date, cutoff48h),
         sql`${bakingDaysTable.total_available} > ${bakingDaysTable.reserved_count}`
       )
     )
@@ -95,7 +127,7 @@ async function handleIdle(phoneNumber: string): Promise<void> {
   if (!availableDays.length) {
     await sendWhatsAppMessage(
       phoneNumber,
-      "Hi! 👋 Thanks for reaching out to *Sourdough by [Baker]*.\n\nUnfortunately we don't have any available baking days right now. Please check back soon!"
+      "Hi! 👋 Thanks for reaching out to *Sourdough by Alles van Afrika*.\n\nUnfortunately we don't have any available baking days right now. Please check back soon!"
     );
     return;
   }
@@ -111,14 +143,14 @@ async function handleIdle(phoneNumber: string): Promise<void> {
 
   await sendWhatsAppMessage(
     phoneNumber,
-    `Hi! 👋 Welcome to *Sourdough by [Baker]*!\n\nHere are the upcoming baking days:\n\n${daysList}\n\nReply with the *number* of the date you'd like to order for.\n\n_Reply *cancel* anytime to stop._`
+    `Hi! 👋 Welcome to *Sourdough by Alles van Afrika*!\n\nHere are the upcoming baking days:\n\n${daysList}\n\nReply with the *number* of the date you'd like to order for.\n\n_Reply *cancel* anytime to stop._`
   );
 
   await updateState(phoneNumber, "awaiting_date", { availableDays });
 }
 
 async function handleDateSelection(phoneNumber: string, input: string, _pending: PendingOrderData | null): Promise<void> {
-  const today = new Date().toISOString().split("T")[0];
+  const cutoff48h = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString().split("T")[0];
 
   const availableDays = await db
     .select({
@@ -133,7 +165,7 @@ async function handleDateSelection(phoneNumber: string, input: string, _pending:
     .innerJoin(productsTable, eq(bakingDaysTable.productId, productsTable.id))
     .where(
       and(
-        gte(bakingDaysTable.date, today),
+        gte(bakingDaysTable.date, cutoff48h),
         sql`${bakingDaysTable.total_available} > ${bakingDaysTable.reserved_count}`
       )
     )
@@ -244,9 +276,11 @@ async function handleQuantitySelection(phoneNumber: string, input: string, pendi
 
   logger.info({ orderId: order.id, phoneNumber }, "Order created, awaiting payment");
 
+  const pickupAddress = process.env.PICKUP_ADDRESS || "baker's address (to be confirmed)";
+
   await sendWhatsAppMessage(
     phoneNumber,
-    `✅ Almost done! Here's your order summary:\n\n📅 *${pending.bakingDayDate}*\n🍞 *${quantity}* sourdough loaf(ves)\n💰 *R${totalFormatted}* total\n\nPlease complete your payment here:\n${paymentLink}\n\n_Your spot is reserved for 24 hours. Reply *cancel* to cancel._`
+    `✅ Almost done! Here's your order summary:\n\n📅 *${pending.bakingDayDate}*\n📍 *${pickupAddress}*\n🍞 *${quantity}* sourdough loaf(ves)\n💰 *R${totalFormatted}* total\n\nPlease complete your payment here:\n${paymentLink}\n\n_Your spot is reserved for 24 hours. Reply *cancel* to cancel._`
   );
 }
 
