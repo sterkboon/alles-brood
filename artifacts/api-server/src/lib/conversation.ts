@@ -10,14 +10,14 @@ import { sendWhatsAppMessage } from "./twilio";
 import { createYocoCheckout } from "./yoco";
 import { logger } from "./logger";
 
-// Cancel pending_payment orders older than 2 hours so failed/abandoned payments
-// don't permanently inflate reservedCount and reduce visible availability.
+// Cancel pending_payment orders older than 30 minutes so abandoned payments
+// don't permanently hold stock and reduce visible availability.
 async function expireStaleOrders(): Promise<void> {
-  const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+  const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
   const stale = await db
     .select()
     .from(ordersTable)
-    .where(and(eq(ordersTable.status, "pending_payment"), lt(ordersTable.createdAt, twoHoursAgo)));
+    .where(and(eq(ordersTable.status, "pending_payment"), lt(ordersTable.createdAt, thirtyMinutesAgo)));
 
   for (const order of stale) {
     await db.transaction(async (tx) => {
@@ -29,14 +29,14 @@ async function expireStaleOrders(): Promise<void> {
       if (cancelled.length > 0) {
         await tx
           .update(bakingDaysTable)
-          .set({ reservedCount: sql`${bakingDaysTable.reservedCount} - ${order.quantity}` })
+          .set({ reservedCount: sql`GREATEST(0, ${bakingDaysTable.reservedCount} - ${order.quantity})` })
           .where(eq(bakingDaysTable.id, order.bakingDayId));
       }
     });
   }
 
   if (stale.length > 0) {
-    logger.info({ count: stale.length }, "Expired stale pending orders");
+    logger.info({ count: stale.length }, "Expired abandoned pending orders (30-min timeout)");
   }
 }
 
@@ -45,6 +45,26 @@ interface PendingOrderData {
   bakingDayDate?: string;
   quantity?: number;
   priceCents?: number;
+}
+
+// Cancel a specific order and release its reserved slot.
+async function cancelPendingOrder(orderId: number, bakingDayId: number, quantity: number): Promise<boolean> {
+  let cancelled = false;
+  await db.transaction(async (tx) => {
+    const rows = await tx
+      .update(ordersTable)
+      .set({ status: "cancelled", updatedAt: new Date() })
+      .where(and(eq(ordersTable.id, orderId), eq(ordersTable.status, "pending_payment")))
+      .returning();
+    if (rows.length > 0) {
+      cancelled = true;
+      await tx
+        .update(bakingDaysTable)
+        .set({ reservedCount: sql`GREATEST(0, ${bakingDaysTable.reservedCount} - ${quantity})` })
+        .where(eq(bakingDaysTable.id, bakingDayId));
+    }
+  });
+  return cancelled;
 }
 
 export async function handleIncomingMessage(from: string, body: string): Promise<void> {
@@ -67,6 +87,7 @@ export async function handleIncomingMessage(from: string, body: string): Promise
     state = { whatsappNumber: phoneNumber, step: "idle", pendingOrderData: null, updatedAt: new Date() };
   }
 
+  // cancel/stop always works from any state
   if (trimmed === "cancel" || trimmed === "stop") {
     if (state.step === "awaiting_payment") {
       const pendingOrder = await db
@@ -83,27 +104,47 @@ export async function handleIncomingMessage(from: string, body: string): Promise
         .then((rows) => rows[0]);
 
       if (pendingOrder) {
-        const { id: orderId, bakingDayId: dayId, quantity: qty } = pendingOrder;
-        await db.transaction(async (tx) => {
-          // Guard with status check to prevent double-cancel race condition.
-          const cancelled = await tx
-            .update(ordersTable)
-            .set({ status: "cancelled", updatedAt: new Date() })
-            .where(and(eq(ordersTable.id, orderId), eq(ordersTable.status, "pending_payment")))
-            .returning();
-          if (cancelled.length > 0) {
-            await tx
-              .update(bakingDaysTable)
-              .set({ reservedCount: sql`${bakingDaysTable.reservedCount} - ${qty}` })
-              .where(eq(bakingDaysTable.id, dayId));
-          }
-        });
-        logger.info({ orderId, phoneNumber }, "Order cancelled by customer via WhatsApp");
+        const ok = await cancelPendingOrder(pendingOrder.id, pendingOrder.bakingDayId, pendingOrder.quantity);
+        if (ok) {
+          logger.info({ orderId: pendingOrder.id, phoneNumber }, "Order cancelled by customer via WhatsApp");
+        }
       }
     }
 
     await updateState(phoneNumber, "idle", null);
     await sendWhatsAppMessage(phoneNumber, "No problem! Your order has been cancelled. Reply *order* anytime to start a new order.");
+    return;
+  }
+
+  // If awaiting payment: starting a new order auto-cancels the old one
+  if (state.step === "awaiting_payment") {
+    if (trimmed === "hi" || trimmed === "hello" || trimmed === "order") {
+      const pendingOrder = await db
+        .select()
+        .from(ordersTable)
+        .where(
+          and(
+            eq(ordersTable.whatsappNumber, phoneNumber),
+            eq(ordersTable.status, "pending_payment")
+          )
+        )
+        .orderBy(sql`${ordersTable.createdAt} DESC`)
+        .limit(1)
+        .then((rows) => rows[0]);
+
+      if (pendingOrder) {
+        const ok = await cancelPendingOrder(pendingOrder.id, pendingOrder.bakingDayId, pendingOrder.quantity);
+        if (ok) {
+          logger.info({ orderId: pendingOrder.id, phoneNumber }, "Pending order auto-cancelled: customer started a new order");
+        }
+      }
+      await handleIdle(phoneNumber);
+    } else {
+      await sendWhatsAppMessage(
+        phoneNumber,
+        "We're still waiting for your payment. Please use the link sent earlier, or reply *cancel* to start over."
+      );
+    }
     return;
   }
 
@@ -119,14 +160,6 @@ export async function handleIncomingMessage(from: string, body: string): Promise
 
   if (state.step === "awaiting_quantity") {
     await handleQuantitySelection(phoneNumber, body.trim(), state.pendingOrderData as PendingOrderData);
-    return;
-  }
-
-  if (state.step === "awaiting_payment") {
-    await sendWhatsAppMessage(
-      phoneNumber,
-      "We're still waiting for your payment. Please use the link sent earlier, or reply *cancel* to start over."
-    );
     return;
   }
 
@@ -156,7 +189,7 @@ export async function notifyCustomerManualOrder({
 
   await sendWhatsAppMessage(
     phoneNumber,
-    `${greeting}👋 Your sourdough order has been placed by the baker!\n\n📅 *Pickup: ${formatted}*\n📍 *${pickupAddress}*\n🍞 *${quantity}* sourdough loaf(ves)\n💰 *R${totalFormatted}* total\n\n⚠️ Your order will only be *confirmed once payment is received*.\n\nPlease complete your payment here:\n${paymentLink}\n\n_Reply *order* anytime to place a new order._`
+    `${greeting}👋 Your sourdough order has been placed by the baker!\n\n📅 *Pickup: ${formatted}*\n📍 *${pickupAddress}*\n🍞 *${quantity}* sourdough loaf(ves)\n💰 *R${totalFormatted}* total\n\n⚠️ Your order will only be *confirmed once payment is received*.\n\nPlease complete your payment here:\n${paymentLink}\n\n_Reply *cancel* to cancel, or *order* to start a new order._`
   );
 
   await updateState(phoneNumber, "awaiting_payment", {
@@ -176,6 +209,7 @@ async function handleIdle(phoneNumber: string): Promise<void> {
       totalAvailable: bakingDaysTable.totalAvailable,
       reservedCount: bakingDaysTable.reservedCount,
       paidLoaves: sql<number>`COALESCE((SELECT SUM(quantity) FROM ${ordersTable} WHERE ${ordersTable.bakingDayId} = ${bakingDaysTable.id} AND ${ordersTable.status} = 'paid'), 0)`,
+      pendingLoaves: sql<number>`COALESCE((SELECT SUM(quantity) FROM ${ordersTable} WHERE ${ordersTable.bakingDayId} = ${bakingDaysTable.id} AND ${ordersTable.status} = 'pending_payment'), 0)`,
       productName: productsTable.name,
       priceCents: productsTable.priceCents,
     })
@@ -184,7 +218,7 @@ async function handleIdle(phoneNumber: string): Promise<void> {
     .where(
       and(
         gte(bakingDaysTable.date, cutoff48h),
-        sql`${bakingDaysTable.totalAvailable} > ${bakingDaysTable.reservedCount} + COALESCE((SELECT SUM(${ordersTable.quantity}) FROM ${ordersTable} WHERE ${ordersTable.bakingDayId} = ${bakingDaysTable.id} AND ${ordersTable.status} = 'paid'), 0)`
+        sql`${bakingDaysTable.totalAvailable} > COALESCE((SELECT SUM(quantity) FROM ${ordersTable} WHERE ${ordersTable.bakingDayId} = ${bakingDaysTable.id} AND ${ordersTable.status} = 'pending_payment'), 0) + COALESCE((SELECT SUM(quantity) FROM ${ordersTable} WHERE ${ordersTable.bakingDayId} = ${bakingDaysTable.id} AND ${ordersTable.status} = 'paid'), 0)`
       )
     )
     .orderBy(bakingDaysTable.date)
@@ -202,8 +236,8 @@ async function handleIdle(phoneNumber: string): Promise<void> {
     .map((d, i) => {
       const date = new Date(d.date + "T00:00:00");
       const formatted = date.toLocaleDateString("en-ZA", { weekday: "long", day: "numeric", month: "long" });
-      const visible = d.totalAvailable - Number(d.paidLoaves);
-      return `${i + 1}. *${formatted}* — ${visible} loaf(ves) available`;
+      const available = d.totalAvailable - Number(d.pendingLoaves) - Number(d.paidLoaves);
+      return `${i + 1}. *${formatted}* — ${available} loaf(ves) available`;
     })
     .join("\n");
 
@@ -225,6 +259,7 @@ async function handleDateSelection(phoneNumber: string, input: string, _pending:
       totalAvailable: bakingDaysTable.totalAvailable,
       reservedCount: bakingDaysTable.reservedCount,
       paidLoaves: sql<number>`COALESCE((SELECT SUM(quantity) FROM ${ordersTable} WHERE ${ordersTable.bakingDayId} = ${bakingDaysTable.id} AND ${ordersTable.status} = 'paid'), 0)`,
+      pendingLoaves: sql<number>`COALESCE((SELECT SUM(quantity) FROM ${ordersTable} WHERE ${ordersTable.bakingDayId} = ${bakingDaysTable.id} AND ${ordersTable.status} = 'pending_payment'), 0)`,
       productName: productsTable.name,
       priceCents: productsTable.priceCents,
     })
@@ -233,7 +268,7 @@ async function handleDateSelection(phoneNumber: string, input: string, _pending:
     .where(
       and(
         gte(bakingDaysTable.date, cutoff48h),
-        sql`${bakingDaysTable.totalAvailable} > ${bakingDaysTable.reservedCount} + COALESCE((SELECT SUM(${ordersTable.quantity}) FROM ${ordersTable} WHERE ${ordersTable.bakingDayId} = ${bakingDaysTable.id} AND ${ordersTable.status} = 'paid'), 0)`
+        sql`${bakingDaysTable.totalAvailable} > COALESCE((SELECT SUM(quantity) FROM ${ordersTable} WHERE ${ordersTable.bakingDayId} = ${bakingDaysTable.id} AND ${ordersTable.status} = 'pending_payment'), 0) + COALESCE((SELECT SUM(quantity) FROM ${ordersTable} WHERE ${ordersTable.bakingDayId} = ${bakingDaysTable.id} AND ${ordersTable.status} = 'paid'), 0)`
       )
     )
     .orderBy(bakingDaysTable.date)
@@ -247,7 +282,7 @@ async function handleDateSelection(phoneNumber: string, input: string, _pending:
   }
 
   const chosen = availableDays[idx];
-  const visible = chosen.totalAvailable - Number(chosen.paidLoaves);
+  const available = chosen.totalAvailable - Number(chosen.pendingLoaves) - Number(chosen.paidLoaves);
   const date = new Date(chosen.date + "T00:00:00");
   const formatted = date.toLocaleDateString("en-ZA", { weekday: "long", day: "numeric", month: "long" });
   const priceFormatted = (chosen.priceCents / 100).toFixed(2);
@@ -260,7 +295,7 @@ async function handleDateSelection(phoneNumber: string, input: string, _pending:
 
   await sendWhatsAppMessage(
     phoneNumber,
-    `Great choice! 🍞 You've selected *${formatted}*.\n\n*${chosen.productName}* — R${priceFormatted} each\n\nHow many loaves would you like? (max ${visible} available)\n\nReply with a *number*.`
+    `Great choice! 🍞 You've selected *${formatted}*.\n\n*${chosen.productName}* — R${priceFormatted} each\n\nHow many loaves would you like? (max ${available} available)\n\nReply with a *number*.`
   );
 }
 
@@ -287,6 +322,7 @@ async function handleQuantitySelection(phoneNumber: string, input: string, pendi
       totalAvailable: bakingDaysTable.totalAvailable,
       reservedCount: bakingDaysTable.reservedCount,
       paidLoaves: sql<number>`COALESCE((SELECT SUM(${ordersTable.quantity}) FROM ${ordersTable} WHERE ${ordersTable.bakingDayId} = ${bakingDaysTable.id} AND ${ordersTable.status} = 'paid'), 0)`,
+      pendingLoaves: sql<number>`COALESCE((SELECT SUM(${ordersTable.quantity}) FROM ${ordersTable} WHERE ${ordersTable.bakingDayId} = ${bakingDaysTable.id} AND ${ordersTable.status} = 'pending_payment'), 0)`,
     })
     .from(bakingDaysTable)
     .where(eq(bakingDaysTable.id, pendingBakingDayId));
@@ -297,8 +333,8 @@ async function handleQuantitySelection(phoneNumber: string, input: string, pendi
     return;
   }
 
-  // reserved_count = pending only; also subtract paid loaves from remaining capacity.
-  const remaining = bakingDay.totalAvailable - bakingDay.reservedCount - Number(bakingDay.paidLoaves);
+  // Use live pending + paid loaves for accurate remaining count
+  const remaining = bakingDay.totalAvailable - Number(bakingDay.pendingLoaves) - Number(bakingDay.paidLoaves);
   if (quantity > remaining) {
     await sendWhatsAppMessage(
       phoneNumber,
@@ -360,7 +396,7 @@ async function handleQuantitySelection(phoneNumber: string, input: string, pendi
 
   await sendWhatsAppMessage(
     phoneNumber,
-    `✅ Almost done! Here's your order summary:\n\n📅 *${pendingBakingDayDate ?? bakingDay.date}*\n📍 *${pickupAddress}*\n🍞 *${quantity}* sourdough loaf(ves)\n💰 *R${totalFormatted}* total\n\nPlease complete your payment here:\n${paymentLink}\n\n_Your spot is reserved for 24 hours. Reply *cancel* to cancel._`
+    `✅ Almost done! Here's your order summary:\n\n📅 *${pendingBakingDayDate ?? bakingDay.date}*\n📍 *${pickupAddress}*\n🍞 *${quantity}* sourdough loaf(ves)\n💰 *R${totalFormatted}* total\n\nPlease complete your payment here:\n${paymentLink}\n\n_Your spot is held for 30 minutes. Reply *cancel* to cancel._`
   );
 }
 

@@ -32,6 +32,7 @@ router.get("/baker/baking-days", requireBakerAuth, async (req, res): Promise<voi
       paidCount: sql<number>`COUNT(CASE WHEN ${ordersTable.status} = 'paid' THEN 1 END)::int`,
       pendingCount: sql<number>`COUNT(CASE WHEN ${ordersTable.status} = 'pending_payment' THEN 1 END)::int`,
       paidLoaves: sql<number>`COALESCE(SUM(CASE WHEN ${ordersTable.status} = 'paid' THEN ${ordersTable.quantity} ELSE 0 END), 0)::int`,
+      pendingLoaves: sql<number>`COALESCE(SUM(CASE WHEN ${ordersTable.status} = 'pending_payment' THEN ${ordersTable.quantity} ELSE 0 END), 0)::int`,
     })
     .from(bakingDaysTable)
     .innerJoin(productsTable, eq(bakingDaysTable.productId, productsTable.id))
@@ -48,7 +49,8 @@ router.get("/baker/baking-days", requireBakerAuth, async (req, res): Promise<voi
 
   const result = rows.map((row) => ({
     ...row,
-    remaining: row.totalAvailable - row.reservedCount - row.paidLoaves,
+    // remaining uses live loaf counts, not the denormalized reservedCount counter
+    remaining: row.totalAvailable - row.pendingLoaves - row.paidLoaves,
     editable: isAtLeast48HoursAway(row.date),
   }));
 
@@ -104,9 +106,19 @@ router.patch("/baker/baking-days/:id", requireBakerAuth, async (req, res): Promi
     return;
   }
 
-  if (parsed.data.totalAvailable !== undefined && parsed.data.totalAvailable < existing.reservedCount) {
+  // Compute committed loaves live (paid + pending) to enforce minimum
+  const [loavesRow] = await db
+    .select({
+      committedLoaves: sql<number>`COALESCE(SUM(CASE WHEN status IN ('paid', 'pending_payment') THEN quantity ELSE 0 END), 0)::int`,
+    })
+    .from(ordersTable)
+    .where(eq(ordersTable.bakingDayId, params.data.id));
+
+  const committedLoaves = loavesRow?.committedLoaves ?? 0;
+
+  if (parsed.data.totalAvailable !== undefined && parsed.data.totalAvailable < committedLoaves) {
     res.status(422).json({
-      error: `Cannot reduce availability below the number already reserved (${existing.reservedCount}).`,
+      error: `Cannot reduce availability below committed loaves (${committedLoaves} paid + pending).`,
     });
     return;
   }

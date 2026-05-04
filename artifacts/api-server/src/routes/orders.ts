@@ -132,6 +132,7 @@ router.post("/baker/orders", requireBakerAuth, async (req, res): Promise<void> =
       reservedCount: bakingDaysTable.reservedCount,
       productId: bakingDaysTable.productId,
       paidLoaves: sql<number>`COALESCE((SELECT SUM(quantity) FROM orders WHERE baking_day_id = ${bakingDaysTable.id} AND status = 'paid'), 0)`,
+      pendingLoaves: sql<number>`COALESCE((SELECT SUM(quantity) FROM orders WHERE baking_day_id = ${bakingDaysTable.id} AND status = 'pending_payment'), 0)`,
     })
     .from(bakingDaysTable)
     .where(eq(bakingDaysTable.id, bakingDayId));
@@ -146,7 +147,7 @@ router.post("/baker/orders", requireBakerAuth, async (req, res): Promise<void> =
     return;
   }
 
-  const remaining = bakingDay.totalAvailable - bakingDay.reservedCount - Number(bakingDay.paidLoaves);
+  const remaining = bakingDay.totalAvailable - Number(bakingDay.pendingLoaves) - Number(bakingDay.paidLoaves);
   if (quantity > remaining) {
     res.status(422).json({ error: `Only ${remaining} loaf(ves) remaining for that day.` });
     return;

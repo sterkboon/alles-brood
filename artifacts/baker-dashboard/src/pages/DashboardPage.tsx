@@ -40,6 +40,15 @@ function statusBadge(status: string) {
   return <Badge variant="outline" className="text-muted-foreground">Cancelled</Badge>;
 }
 
+type UpcomingDay = {
+  id: number;
+  date: string;
+  totalAvailable: number;
+  paidLoaves: number;
+  pendingLoaves: number;
+  remaining: number;
+};
+
 export default function DashboardPage() {
   const { data, isLoading } = useGetBakerSummary();
   const [createOpen, setCreateOpen] = useState(false);
@@ -81,19 +90,25 @@ export default function DashboardPage() {
                 <p className="text-sm text-muted-foreground p-4">No upcoming baking days. Add some in Baking Days.</p>
               ) : (
                 <div className="divide-y divide-border">
-                  {data.upcomingDays.map((day) => (
+                  {(data.upcomingDays as UpcomingDay[]).map((day) => (
                     <div key={day.id} className="px-4 py-3 flex items-center justify-between">
                       <div>
                         <p className="text-sm font-medium">
                           {format(parseISO(day.date), "EEE, d MMM yyyy")}
                         </p>
                         <p className="text-xs text-muted-foreground">
-                          {day.paidCount} paid · {day.pendingCount} pending · {day.remaining} left
+                          <span className="text-green-700 font-medium">{day.paidLoaves} sold</span>
+                          {" · "}
+                          <span className="text-amber-600 font-medium">{day.pendingLoaves} held</span>
+                          {" · "}
+                          <span className="font-medium">{day.remaining} free</span>
+                          {" of "}
+                          {day.totalAvailable} loaves
                         </p>
                       </div>
                       <div className="text-right">
-                        <p className="text-sm font-semibold">{day.reservedCount}/{day.totalAvailable}</p>
-                        <p className="text-xs text-muted-foreground">reserved</p>
+                        <p className="text-sm font-semibold">{day.remaining}</p>
+                        <p className="text-xs text-muted-foreground">available</p>
                       </div>
                     </div>
                   ))}

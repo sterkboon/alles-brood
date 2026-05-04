@@ -29,6 +29,7 @@ router.get("/baker/summary", requireBakerAuth, async (_req, res): Promise<void> 
       paidCount: sql<number>`COUNT(CASE WHEN ${ordersTable.status} = 'paid' THEN 1 END)::int`,
       pendingCount: sql<number>`COUNT(CASE WHEN ${ordersTable.status} = 'pending_payment' THEN 1 END)::int`,
       paidLoaves: sql<number>`COALESCE(SUM(CASE WHEN ${ordersTable.status} = 'paid' THEN ${ordersTable.quantity} ELSE 0 END), 0)::int`,
+      pendingLoaves: sql<number>`COALESCE(SUM(CASE WHEN ${ordersTable.status} = 'pending_payment' THEN ${ordersTable.quantity} ELSE 0 END), 0)::int`,
     })
     .from(bakingDaysTable)
     .innerJoin(productsTable, eq(bakingDaysTable.productId, productsTable.id))
@@ -46,7 +47,8 @@ router.get("/baker/summary", requireBakerAuth, async (_req, res): Promise<void> 
 
   const upcomingWithRemaining = upcomingDays.map((d) => ({
     ...d,
-    remaining: d.totalAvailable - d.reservedCount - d.paidLoaves,
+    // remaining uses live loaf counts, not the denormalized reservedCount counter
+    remaining: d.totalAvailable - d.pendingLoaves - d.paidLoaves,
   }));
 
   const recentOrderRows = await db

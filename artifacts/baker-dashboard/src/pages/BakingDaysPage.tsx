@@ -30,6 +30,8 @@ type BakingDayRow = {
   reservedCount: number;
   paidCount: number;
   pendingCount: number;
+  paidLoaves: number;
+  pendingLoaves: number;
   remaining: number;
   editable?: boolean;
 };
@@ -132,20 +134,20 @@ function EditDayDialog({
             <Label>Total Loaves Available</Label>
             <Input
               type="number"
-              min={day.reservedCount}
+              min={day.paidLoaves + day.pendingLoaves}
               max={200}
               value={total}
               onChange={(e) => setTotal(e.target.value)}
             />
             <p className="text-xs text-muted-foreground">
-              Minimum {day.reservedCount} (already reserved)
+              Minimum {day.paidLoaves + day.pendingLoaves} ({day.paidLoaves} sold + {day.pendingLoaves} held)
             </p>
           </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button
-            disabled={Number(total) < day.reservedCount || update.isPending}
+            disabled={Number(total) < day.paidLoaves + day.pendingLoaves || update.isPending}
             onClick={() => update.mutate({ id: day.id, data: { totalAvailable: Number(total) } })}
           >
             {update.isPending ? "Saving…" : "Save"}
@@ -239,13 +241,13 @@ export default function BakingDaysPage() {
                         </div>
                         <div className="flex items-center gap-4 mt-1">
                           <span className="text-xs text-muted-foreground">
-                            <span className="font-medium text-green-700">{day.paidCount} paid</span>
+                            <span className="font-medium text-green-700">{day.paidLoaves} sold</span>
                             {" · "}
-                            <span className="font-medium text-amber-600">{day.pendingCount} pending</span>
+                            <span className="font-medium text-amber-600">{day.pendingLoaves} held</span>
                             {" · "}
-                            <span className="font-medium">{day.remaining} remaining</span>
+                            <span className="font-medium">{day.remaining} free</span>
                             {" of "}
-                            {day.totalAvailable}
+                            {day.totalAvailable} loaves
                           </span>
                         </div>
                       </div>
