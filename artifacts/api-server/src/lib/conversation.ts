@@ -1,4 +1,4 @@
-import { eq, gte, and, sql } from "drizzle-orm";
+import { eq, gte, and, lt, sql } from "drizzle-orm";
 import {
   db,
   conversationStateTable,
@@ -9,6 +9,36 @@ import {
 import { sendWhatsAppMessage } from "./twilio";
 import { createYocoCheckout } from "./yoco";
 import { logger } from "./logger";
+
+// Cancel pending_payment orders older than 2 hours so failed/abandoned payments
+// don't permanently inflate reservedCount and reduce visible availability.
+async function expireStaleOrders(): Promise<void> {
+  const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+  const stale = await db
+    .select()
+    .from(ordersTable)
+    .where(and(eq(ordersTable.status, "pending_payment"), lt(ordersTable.createdAt, twoHoursAgo)));
+
+  for (const order of stale) {
+    await db.transaction(async (tx) => {
+      const cancelled = await tx
+        .update(ordersTable)
+        .set({ status: "cancelled", updatedAt: new Date() })
+        .where(and(eq(ordersTable.id, order.id), eq(ordersTable.status, "pending_payment")))
+        .returning();
+      if (cancelled.length > 0) {
+        await tx
+          .update(bakingDaysTable)
+          .set({ reservedCount: sql`${bakingDaysTable.reservedCount} - ${order.quantity}` })
+          .where(eq(bakingDaysTable.id, order.bakingDayId));
+      }
+    });
+  }
+
+  if (stale.length > 0) {
+    logger.info({ count: stale.length }, "Expired stale pending orders");
+  }
+}
 
 interface PendingOrderData {
   bakingDayId?: number;
@@ -136,6 +166,7 @@ export async function notifyCustomerManualOrder({
 }
 
 async function handleIdle(phoneNumber: string): Promise<void> {
+  await expireStaleOrders();
   const cutoff48h = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString().split("T")[0];
 
   const availableDays = await db
