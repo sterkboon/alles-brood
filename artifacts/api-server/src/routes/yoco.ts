@@ -32,6 +32,14 @@ router.post("/yoco/webhook", async (req, res): Promise<void> => {
       return;
     }
 
+    const expected = createHmac("sha256", webhookSecret).update(rawBody).digest("hex");
+    logger.warn({
+      signatureHeader: signature,
+      expectedHex: expected,
+      rawBodySnippet: rawBody.toString("utf8").slice(0, 120),
+      allHeaders: Object.keys(req.headers).filter(h => h.includes("yoco") || h.includes("signature")),
+    }, "Yoco webhook signature debug");
+
     if (!verifyYocoSignature(rawBody, signature, webhookSecret)) {
       logger.warn({ signature }, "Yoco webhook signature verification failed");
       res.status(401).json({ error: "Invalid webhook signature" });
