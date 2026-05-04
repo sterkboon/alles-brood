@@ -24,9 +24,11 @@ export async function sendWhatsAppMessage(to: string, body: string): Promise<voi
   }
   try {
     const client = getTwilioClient();
+    const formattedFrom = from.startsWith("whatsapp:") ? from : `whatsapp:${from}`;
+    const formattedTo = to.startsWith("whatsapp:") ? to : `whatsapp:${to}`;
     await client.messages.create({
-      from: `whatsapp:${from}`,
-      to: `whatsapp:${to}`,
+      from: formattedFrom,
+      to: formattedTo,
       body,
     });
   } catch (err) {
