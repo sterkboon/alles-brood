@@ -9,9 +9,11 @@ const router: IRouter = Router();
 
 function verifyYocoSignature(rawBody: Buffer, signatureHeader: string | undefined, secret: string): boolean {
   if (!signatureHeader) return false;
+  // Strip optional "sha256=" prefix Yoco may prepend
+  const sig = signatureHeader.startsWith("sha256=") ? signatureHeader.slice(7) : signatureHeader;
   const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
   try {
-    return timingSafeEqual(Buffer.from(signatureHeader, "hex"), Buffer.from(expected, "hex"));
+    return timingSafeEqual(Buffer.from(sig, "hex"), Buffer.from(expected, "hex"));
   } catch {
     return false;
   }

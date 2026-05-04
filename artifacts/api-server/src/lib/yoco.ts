@@ -19,8 +19,9 @@ export async function createYocoCheckout(
   }
 
   const domains = process.env.REPLIT_DOMAINS?.split(",")[0];
-  const cancelUrl = domains ? `https://${domains}` : "https://example.com";
-  const successUrl = cancelUrl;
+  const baseUrl = domains ? `https://${domains}/api` : "https://example.com/api";
+  const successUrl = `${baseUrl}/payment/success`;
+  const cancelUrl = `${baseUrl}/payment/cancel`;
 
   const response = await axios.post(
     `${YOCO_API_URL}/checkouts`,

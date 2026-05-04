@@ -6,6 +6,7 @@ import bakingDaysRouter from "./bakingDays";
 import ordersRouter from "./orders";
 import whatsappRouter from "./whatsapp";
 import yocoRouter from "./yoco";
+import paymentRouter from "./payment";
 
 const router: IRouter = Router();
 
@@ -16,5 +17,6 @@ router.use(bakingDaysRouter);
 router.use(ordersRouter);
 router.use(whatsappRouter);
 router.use(yocoRouter);
+router.use(paymentRouter);
 
 export default router;
