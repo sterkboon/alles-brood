@@ -2,7 +2,7 @@ import { Router, type IRouter } from "express";
 
 const router: IRouter = Router();
 
-const page = (title: string, emoji: string, heading: string, body: string) => `<!DOCTYPE html>
+const page = (title: string, emoji: string, heading: string, body: string, waLink = "https://wa.me/") => `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -48,18 +48,23 @@ const page = (title: string, emoji: string, heading: string, body: string) => `<
     <div class="emoji">${emoji}</div>
     <h1>${heading}</h1>
     <p>${body}</p>
-    <a class="btn" href="https://wa.me/">Open WhatsApp</a>
+    <a class="btn" href="${waLink}">Return to WhatsApp</a>
   </div>
 </body>
 </html>`;
 
 router.get("/payment/success", (_req, res) => {
+  const rawNumber = process.env.TWILIO_WHATSAPP_NUMBER ?? "";
+  const waNumber = rawNumber.replace(/^whatsapp:/, "").replace(/\D/g, "");
+  const waLink = waNumber ? `https://wa.me/${waNumber}` : "https://wa.me/";
+
   res.setHeader("Content-Type", "text/html");
   res.send(page(
     "Payment Successful",
     "🎉",
     "Payment received!",
-    "Your sourdough order is confirmed. You'll receive a WhatsApp message with your order details shortly. You can close this page."
+    `Your sourdough order is confirmed. You'll receive a WhatsApp message with your order details shortly.`,
+    waLink
   ));
 });
 
