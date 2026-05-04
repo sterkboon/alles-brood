@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { Webhook } from "standardwebhooks";
 import { eq, sql } from "drizzle-orm";
 import { db, ordersTable, bakingDaysTable, conversationStateTable } from "@workspace/db";
 import { sendWhatsAppMessage } from "../lib/twilio";
@@ -7,23 +7,10 @@ import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
-function verifyYocoSignature(rawBody: Buffer, signatureHeader: string | undefined, secret: string): boolean {
-  if (!signatureHeader) return false;
-  // Strip optional "sha256=" prefix Yoco may prepend
-  const sig = signatureHeader.startsWith("sha256=") ? signatureHeader.slice(7) : signatureHeader;
-  const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
-  try {
-    return timingSafeEqual(Buffer.from(sig, "hex"), Buffer.from(expected, "hex"));
-  } catch {
-    return false;
-  }
-}
-
 router.post("/yoco/webhook", async (req, res): Promise<void> => {
   const webhookSecret = process.env.YOCO_WEBHOOK_SECRET;
 
   if (webhookSecret) {
-    const signature = req.headers["x-yoco-signature"] as string | undefined;
     const rawBody: Buffer | undefined = (req as unknown as { rawBody?: Buffer }).rawBody;
 
     if (!rawBody) {
@@ -32,16 +19,11 @@ router.post("/yoco/webhook", async (req, res): Promise<void> => {
       return;
     }
 
-    const expected = createHmac("sha256", webhookSecret).update(rawBody).digest("hex");
-    logger.warn({
-      signatureHeader: signature,
-      expectedHex: expected,
-      rawBodySnippet: rawBody.toString("utf8").slice(0, 120),
-      allHeaders: Object.keys(req.headers).filter(h => h.includes("yoco") || h.includes("signature")),
-    }, "Yoco webhook signature debug");
-
-    if (!verifyYocoSignature(rawBody, signature, webhookSecret)) {
-      logger.warn({ signature }, "Yoco webhook signature verification failed");
+    try {
+      const wh = new Webhook(webhookSecret);
+      wh.verify(rawBody, req.headers as Record<string, string>);
+    } catch (err) {
+      logger.warn({ err }, "Yoco webhook signature verification failed");
       res.status(401).json({ error: "Invalid webhook signature" });
       return;
     }
