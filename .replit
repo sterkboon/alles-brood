@@ -36,3 +36,4 @@ externalPort = 3000
 [userenv.shared]
 VITE_CLERK_PUBLISHABLE_KEY = "pk_test_dmFsdWVkLW1hc3RvZG9uLTY0LmNsZXJrLmFjY291bnRzLmRldiQ"
 BAKER_EMAIL = "christian@allesvanafrika.co.za"
+PICKUP_ADDRESS = "15 Norman Road, Hout Bay"
