@@ -373,7 +373,7 @@ async function handleQuantitySelection(phoneNumber: string, input: string, pendi
   if (quantity > remaining) {
     await sendWhatsAppMessage(
       phoneNumber,
-      `Sorry, only *${remaining}* loaves are still available for that day. Please choose a smaller quantity.`
+      `Sorry, only *${remaining}* loaves are still available for that day. Please choose a smaller quantity. Since totalAvailable: ${bakingDay.totalAvailable} pendingLoaves: ${Number(bakingDay.pendingLoaves)} paidLoaves: ${Number(bakingDay.paidLoaves)}`
     );
     return;
   }
