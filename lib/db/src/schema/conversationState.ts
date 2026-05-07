@@ -7,6 +7,7 @@ export const conversationStepEnum = pgEnum("conversation_step", [
   "awaiting_date",
   "awaiting_quantity",
   "awaiting_payment",
+  "awaiting_feedback",
 ]);
 
 export const conversationStateTable = pgTable("conversation_state", {

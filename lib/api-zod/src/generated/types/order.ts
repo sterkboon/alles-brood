@@ -9,6 +9,7 @@ import type { OrderStatus } from "./orderStatus";
 
 export interface Order {
   id: number;
+  orderNumber?: string | null;
   whatsappNumber: string;
   /** @nullable */
   customerName?: string | null;
@@ -19,6 +20,8 @@ export interface Order {
   yocoPaymentId?: string | null;
   /** @nullable */
   yocoCheckoutId?: string | null;
+  /** @nullable */
+  feedback?: string | null;
   createdAt: string;
   updatedAt: string;
 }
