@@ -355,12 +355,13 @@ async function handleQuantitySelection(phoneNumber: string, input: string, pendi
       id: bakingDaysTable.id,
       date: bakingDaysTable.date,
       totalAvailable: bakingDaysTable.totalAvailable,
-      reservedCount: bakingDaysTable.reservedCount,
-      paidLoaves: sql<number>`COALESCE((SELECT SUM(${ordersTable.quantity}) FROM ${ordersTable} WHERE ${ordersTable.bakingDayId} = ${bakingDaysTable.id} AND ${ordersTable.status} = 'paid'), 0)`,
-      pendingLoaves: sql<number>`COALESCE((SELECT SUM(${ordersTable.quantity}) FROM ${ordersTable} WHERE ${ordersTable.bakingDayId} = ${bakingDaysTable.id} AND ${ordersTable.status} = 'pending_payment'), 0)`,
+      paidLoaves: sql<number>`COALESCE(SUM(CASE WHEN ${ordersTable.status} = 'paid' THEN ${ordersTable.quantity} ELSE 0 END), 0)::int`,
+      pendingLoaves: sql<number>`COALESCE(SUM(CASE WHEN ${ordersTable.status} = 'pending_payment' THEN ${ordersTable.quantity} ELSE 0 END), 0)::int`,
     })
     .from(bakingDaysTable)
-    .where(eq(bakingDaysTable.id, pendingBakingDayId));
+    .leftJoin(ordersTable, eq(ordersTable.bakingDayId, bakingDaysTable.id))
+    .where(eq(bakingDaysTable.id, pendingBakingDayId))
+    .groupBy(bakingDaysTable.id, bakingDaysTable.date, bakingDaysTable.totalAvailable);
 
   if (!bakingDay) {
     await sendWhatsAppMessage(phoneNumber, "Sorry, that baking day is no longer available. Please start over.");
@@ -368,12 +369,13 @@ async function handleQuantitySelection(phoneNumber: string, input: string, pendi
     return;
   }
 
-  logger.info({ bakingDay }, "bakingDay values");
-  const remaining = bakingDay.totalAvailable - Number(bakingDay.pendingLoaves) - Number(bakingDay.paidLoaves);
+  const { totalAvailable, paidLoaves, pendingLoaves } = bakingDay;
+  const remaining = totalAvailable - paidLoaves - pendingLoaves;
+
   if (quantity > remaining) {
     await sendWhatsAppMessage(
       phoneNumber,
-      `Sorry, only *${remaining}* loaves are still available for that day. Please choose a smaller quantity. Since totalAvailable: ${bakingDay.totalAvailable} pendingLoaves: ${Number(bakingDay.pendingLoaves)} paidLoaves: ${Number(bakingDay.paidLoaves)}`
+      `Sorry, only *${remaining}* loaves are still available for that day. Please choose a smaller quantity.`
     );
     return;
   }
