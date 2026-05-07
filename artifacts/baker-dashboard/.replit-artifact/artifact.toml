@@ -18,7 +18,7 @@ localPort = 23893
 run = "pnpm --filter @workspace/baker-dashboard run dev"
 
 [services.production]
-build = ["sh", "-c", "VITE_CLERK_PUBLISHABLE_KEY=$CLERK_PUBLISHABLE_KEY pnpm --filter @workspace/baker-dashboard run build"]
+build = ["pnpm", "--filter", "@workspace/baker-dashboard", "run", "build"]
 publicDir = "artifacts/baker-dashboard/dist/public"
 serve = "static"
 

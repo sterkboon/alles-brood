@@ -22,6 +22,7 @@ const queryClient = new QueryClient({
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 const clerkPk = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string;
+const clerkProxyUrl = import.meta.env.VITE_CLERK_PROXY_URL || undefined;
 
 function AuthSync() {
   const { getToken } = useAuth();
@@ -104,6 +105,7 @@ function App() {
   return (
     <ClerkProvider
       publishableKey={clerkPk}
+      proxyUrl={clerkProxyUrl}
     >
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
