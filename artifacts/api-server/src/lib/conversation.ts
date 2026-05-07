@@ -368,6 +368,7 @@ async function handleQuantitySelection(phoneNumber: string, input: string, pendi
     return;
   }
 
+  logger.info({ bakingDay }, "bakingDay values");
   const remaining = bakingDay.totalAvailable - Number(bakingDay.pendingLoaves) - Number(bakingDay.paidLoaves);
   if (quantity > remaining) {
     await sendWhatsAppMessage(
