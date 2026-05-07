@@ -56,7 +56,7 @@ function Home() {
         <div className="min-h-screen flex flex-col items-center justify-center bg-background gap-6 p-8">
           <img src={`${basePath}/logo.svg`} alt="Sourdough" className="w-20 h-20" />
           <div className="text-center">
-            <h1 className="text-3xl font-bold text-foreground">Alles van Afrika</h1>
+            <h1 className="text-3xl font-bold text-foreground">Christian se Brot</h1>
             <p className="text-muted-foreground mt-1">Sourdough Baker's Dashboard</p>
           </div>
           <a

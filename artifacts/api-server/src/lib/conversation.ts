@@ -10,8 +10,18 @@ import { sendWhatsAppMessage } from "./twilio";
 import { createYocoCheckout } from "./yoco";
 import { logger } from "./logger";
 
-// Cancel pending_payment orders older than 30 minutes so abandoned payments
-// don't permanently hold stock and reduce visible availability.
+async function generateOrderNumber(): Promise<string> {
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const num = String(Math.floor(100000 + Math.random() * 900000));
+    const [existing] = await db
+      .select({ id: ordersTable.id })
+      .from(ordersTable)
+      .where(eq(ordersTable.orderNumber, num));
+    if (!existing) return num;
+  }
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
+
 async function expireStaleOrders(): Promise<void> {
   const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
   const stale = await db
@@ -21,12 +31,12 @@ async function expireStaleOrders(): Promise<void> {
 
   for (const order of stale) {
     await db.transaction(async (tx) => {
-      const cancelled = await tx
+      const abandoned = await tx
         .update(ordersTable)
-        .set({ status: "cancelled", updatedAt: new Date() })
+        .set({ status: "abandoned", updatedAt: new Date() })
         .where(and(eq(ordersTable.id, order.id), eq(ordersTable.status, "pending_payment")))
         .returning();
-      if (cancelled.length > 0) {
+      if (abandoned.length > 0) {
         await tx
           .update(bakingDaysTable)
           .set({ reservedCount: sql`GREATEST(0, ${bakingDaysTable.reservedCount} - ${order.quantity})` })
@@ -45,9 +55,12 @@ interface PendingOrderData {
   bakingDayDate?: string;
   quantity?: number;
   priceCents?: number;
+  orderId?: number;
+  orderNumber?: string;
+  bakerCreated?: boolean;
+  totalAmountCents?: number;
 }
 
-// Cancel a specific order and release its reserved slot.
 async function cancelPendingOrder(orderId: number, bakingDayId: number, quantity: number): Promise<boolean> {
   let cancelled = false;
   await db.transaction(async (tx) => {
@@ -87,7 +100,6 @@ export async function handleIncomingMessage(from: string, body: string): Promise
     state = { whatsappNumber: phoneNumber, step: "idle", pendingOrderData: null, updatedAt: new Date() };
   }
 
-  // cancel/stop always works from any state
   if (trimmed === "cancel" || trimmed === "stop") {
     if (state.step === "awaiting_payment") {
       const pendingOrder = await db
@@ -116,7 +128,11 @@ export async function handleIncomingMessage(from: string, body: string): Promise
     return;
   }
 
-  // If awaiting payment: starting a new order auto-cancels the old one
+  if (state.step === "awaiting_feedback") {
+    await handleFeedback(phoneNumber, body.trim(), state.pendingOrderData as PendingOrderData);
+    return;
+  }
+
   if (state.step === "awaiting_payment") {
     if (trimmed === "hi" || trimmed === "hello" || trimmed === "order") {
       const pendingOrder = await db
@@ -166,6 +182,26 @@ export async function handleIncomingMessage(from: string, body: string): Promise
   await handleIdle(phoneNumber);
 }
 
+async function handleFeedback(phoneNumber: string, message: string, pendingData: PendingOrderData | null): Promise<void> {
+  await updateState(phoneNumber, "idle", null);
+
+  if (message.toLowerCase() === "skip") {
+    await sendWhatsAppMessage(phoneNumber, "No problem! See you on collection day. 🍞");
+    return;
+  }
+
+  const orderId = pendingData?.orderId;
+  if (orderId) {
+    await db
+      .update(ordersTable)
+      .set({ feedback: message, updatedAt: new Date() })
+      .where(eq(ordersTable.id, orderId));
+    logger.info({ orderId, phoneNumber }, "Customer feedback saved");
+  }
+
+  await sendWhatsAppMessage(phoneNumber, "Thank you for your feedback! We really appreciate it. See you on collection day! 🍞");
+}
+
 export async function notifyCustomerManualOrder({
   phoneNumber,
   customerName,
@@ -184,12 +220,11 @@ export async function notifyCustomerManualOrder({
   const date = new Date(bakingDayDate + "T00:00:00");
   const formatted = date.toLocaleDateString("en-ZA", { weekday: "long", day: "numeric", month: "long" });
   const totalFormatted = (totalAmountCents / 100).toFixed(2);
-  const pickupAddress = process.env.PICKUP_ADDRESS || "baker's address (to be confirmed)";
   const greeting = customerName ? `Hi ${customerName}! ` : "Hi! ";
 
   await sendWhatsAppMessage(
     phoneNumber,
-    `${greeting}👋 Your sourdough order has been placed by the baker!\n\n📅 *Pickup: ${formatted}*\n📍 *${pickupAddress}*\n🍞 *${quantity}* sourdough loaf(ves)\n💰 *R${totalFormatted}* total\n\n⚠️ Your order will only be *confirmed once payment is received*.\n\nPlease complete your payment here:\n${paymentLink}\n\n_Reply *cancel* to cancel, or *order* to start a new order._`
+    `${greeting}👋 Your sourdough order has been placed by the baker!\n\n📅 *Pickup: ${formatted}*\n🍞 *${quantity}* sourdough loaves\n💰 *R${totalFormatted}* total\n\n⚠️ Your order will only be *confirmed once payment is received*. The pickup address will be shared after payment.\n\nPlease complete your payment here:\n${paymentLink}\n\n_Reply *cancel* to cancel, or *order* to start a new order._`
   );
 
   await updateState(phoneNumber, "awaiting_payment", {
@@ -227,7 +262,7 @@ async function handleIdle(phoneNumber: string): Promise<void> {
   if (!availableDays.length) {
     await sendWhatsAppMessage(
       phoneNumber,
-      "Hi! 👋 Thanks for reaching out to *Sourdough by Alles van Afrika*.\n\nUnfortunately we don't have any available baking days right now. Please check back soon!"
+      "Hi! 👋 Thanks for reaching out to *Christian se Brot*.\n\nUnfortunately we don't have any available baking days right now. Please check back soon!"
     );
     return;
   }
@@ -237,13 +272,13 @@ async function handleIdle(phoneNumber: string): Promise<void> {
       const date = new Date(d.date + "T00:00:00");
       const formatted = date.toLocaleDateString("en-ZA", { weekday: "long", day: "numeric", month: "long" });
       const available = d.totalAvailable - Number(d.pendingLoaves) - Number(d.paidLoaves);
-      return `${i + 1}. *${formatted}* — ${available} loaf(ves) available`;
+      return `${i + 1}. *${formatted}* — ${available} loaves available`;
     })
     .join("\n");
 
   await sendWhatsAppMessage(
     phoneNumber,
-    `Hi! 👋 Welcome to *Sourdough by Alles van Afrika*!\n\nHere are the upcoming baking days:\n\n${daysList}\n\nReply with the *number* of the date you'd like to order for.\n\n_Reply *cancel* anytime to stop._`
+    `Hi! 👋 Welcome to *Christian se Brot*!\n\nHere are the upcoming baking days:\n\n${daysList}\n\nReply with the *number* of the date you'd like to order for.\n\n_Reply *cancel* anytime to stop._`
   );
 
   await updateState(phoneNumber, "awaiting_date", { availableDays });
@@ -333,12 +368,11 @@ async function handleQuantitySelection(phoneNumber: string, input: string, pendi
     return;
   }
 
-  // Use live pending + paid loaves for accurate remaining count
   const remaining = bakingDay.totalAvailable - Number(bakingDay.pendingLoaves) - Number(bakingDay.paidLoaves);
   if (quantity > remaining) {
     await sendWhatsAppMessage(
       phoneNumber,
-      `Sorry, only *${remaining}* loaf(ves) are still available for that day. Please choose a smaller quantity.`
+      `Sorry, only *${remaining}* loaves are still available for that day. Please choose a smaller quantity.`
     );
     return;
   }
@@ -366,10 +400,13 @@ async function handleQuantitySelection(phoneNumber: string, input: string, pendi
     return;
   }
 
+  const orderNumber = await generateOrderNumber();
+
   const [order] = await db.transaction(async (tx) => {
     const [inserted] = await tx
       .insert(ordersTable)
       .values({
+        orderNumber,
         whatsappNumber: phoneNumber,
         bakingDayId: pendingBakingDayId,
         quantity,
@@ -390,13 +427,11 @@ async function handleQuantitySelection(phoneNumber: string, input: string, pendi
     priceCents: pendingPriceCents,
   });
 
-  logger.info({ orderId: order.id, phoneNumber }, "Order created, awaiting payment");
-
-  const pickupAddress = process.env.PICKUP_ADDRESS || "baker's address (to be confirmed)";
+  logger.info({ orderId: order.id, orderNumber, phoneNumber }, "Order created, awaiting payment");
 
   await sendWhatsAppMessage(
     phoneNumber,
-    `✅ Almost done! Here's your order summary:\n\n📅 *${pendingBakingDayDate ?? bakingDay.date}*\n📍 *${pickupAddress}*\n🍞 *${quantity}* sourdough loaf(ves)\n💰 *R${totalFormatted}* total\n\nPlease complete your payment here:\n${paymentLink}\n\n_Your spot is held for 30 minutes. Reply *cancel* to cancel._`
+    `✅ Almost done! Here's your order summary:\n\n🔖 *Order #${orderNumber}*\n📅 *${pendingBakingDayDate ?? bakingDay.date}*\n🍞 *${quantity}* sourdough loaves\n💰 *R${totalFormatted}* total\n\nThe pickup address will be shared once payment is confirmed.\n\nPlease complete your payment here:\n${paymentLink}\n\n_Your spot is held for 30 minutes. Reply *cancel* to cancel._`
   );
 }
 
@@ -405,14 +440,14 @@ async function updateState(phoneNumber: string, step: string, data: unknown): Pr
     .insert(conversationStateTable)
     .values({
       whatsappNumber: phoneNumber,
-      step: step as "idle" | "awaiting_date" | "awaiting_quantity" | "awaiting_payment",
+      step: step as "idle" | "awaiting_date" | "awaiting_quantity" | "awaiting_payment" | "awaiting_feedback",
       pendingOrderData: data as Record<string, unknown>,
       updatedAt: new Date(),
     })
     .onConflictDoUpdate({
       target: conversationStateTable.whatsappNumber,
       set: {
-        step: step as "idle" | "awaiting_date" | "awaiting_quantity" | "awaiting_payment",
+        step: step as "idle" | "awaiting_date" | "awaiting_quantity" | "awaiting_payment" | "awaiting_feedback",
         pendingOrderData: data as Record<string, unknown>,
         updatedAt: new Date(),
       },

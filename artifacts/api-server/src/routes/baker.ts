@@ -8,15 +8,21 @@ const router: IRouter = Router();
 router.get("/baker/summary", requireBakerAuth, async (_req, res): Promise<void> => {
   const today = new Date().toISOString().split("T")[0];
 
-  const [todayOrders] = await db
+  const [todayStats] = await db
     .select({
-      totalOrders: sql<number>`COUNT(*)::int`,
-      paid: sql<number>`COUNT(CASE WHEN ${ordersTable.status} = 'paid' THEN 1 END)::int`,
-      pending: sql<number>`COUNT(CASE WHEN ${ordersTable.status} = 'pending_payment' THEN 1 END)::int`,
+      paidToday: sql<number>`COUNT(CASE WHEN ${ordersTable.status} = 'paid' THEN 1 END)::int`,
+      paidTodayLoaves: sql<number>`COALESCE(SUM(CASE WHEN ${ordersTable.status} = 'paid' THEN ${ordersTable.quantity} ELSE 0 END), 0)::int`,
     })
     .from(ordersTable)
     .innerJoin(bakingDaysTable, eq(ordersTable.bakingDayId, bakingDaysTable.id))
     .where(eq(bakingDaysTable.date, today));
+
+  const [abandonedStats] = await db
+    .select({
+      abandonedTotal: sql<number>`COUNT(*)::int`,
+    })
+    .from(ordersTable)
+    .where(eq(ordersTable.status, "abandoned"));
 
   const upcomingDays = await db
     .select({
@@ -37,7 +43,7 @@ router.get("/baker/summary", requireBakerAuth, async (_req, res): Promise<void> 
       ordersTable,
       and(
         eq(ordersTable.bakingDayId, bakingDaysTable.id),
-        sql`${ordersTable.status} != 'cancelled'`
+        sql`${ordersTable.status} NOT IN ('cancelled', 'abandoned')`
       )
     )
     .where(gte(bakingDaysTable.date, today))
@@ -47,13 +53,13 @@ router.get("/baker/summary", requireBakerAuth, async (_req, res): Promise<void> 
 
   const upcomingWithRemaining = upcomingDays.map((d) => ({
     ...d,
-    // remaining uses live loaf counts, not the denormalized reservedCount counter
     remaining: d.totalAvailable - d.pendingLoaves - d.paidLoaves,
   }));
 
   const recentOrderRows = await db
     .select({
       id: ordersTable.id,
+      orderNumber: ordersTable.orderNumber,
       whatsappNumber: ordersTable.whatsappNumber,
       customerName: ordersTable.customerName,
       bakingDayId: ordersTable.bakingDayId,
@@ -81,9 +87,9 @@ router.get("/baker/summary", requireBakerAuth, async (_req, res): Promise<void> 
   }));
 
   res.json({
-    totalOrdersToday: todayOrders?.totalOrders ?? 0,
-    paidToday: todayOrders?.paid ?? 0,
-    pendingToday: todayOrders?.pending ?? 0,
+    paidToday: todayStats?.paidToday ?? 0,
+    paidTodayLoaves: todayStats?.paidTodayLoaves ?? 0,
+    abandonedTotal: abandonedStats?.abandonedTotal ?? 0,
     upcomingDays: upcomingWithRemaining,
     recentOrders,
   });

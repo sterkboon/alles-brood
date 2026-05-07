@@ -40,7 +40,7 @@ router.get("/baker/baking-days", requireBakerAuth, async (req, res): Promise<voi
       ordersTable,
       and(
         eq(ordersTable.bakingDayId, bakingDaysTable.id),
-        sql`${ordersTable.status} != 'cancelled'`
+        sql`${ordersTable.status} NOT IN ('cancelled', 'abandoned')`
       )
     )
     .where(upcoming ? gte(bakingDaysTable.date, today) : undefined)
@@ -49,7 +49,6 @@ router.get("/baker/baking-days", requireBakerAuth, async (req, res): Promise<voi
 
   const result = rows.map((row) => ({
     ...row,
-    // remaining uses live loaf counts, not the denormalized reservedCount counter
     remaining: row.totalAvailable - row.pendingLoaves - row.paidLoaves,
     editable: isAtLeast48HoursAway(row.date),
   }));
@@ -106,7 +105,6 @@ router.patch("/baker/baking-days/:id", requireBakerAuth, async (req, res): Promi
     return;
   }
 
-  // Compute committed loaves live (paid + pending) to enforce minimum
   const [loavesRow] = await db
     .select({
       committedLoaves: sql<number>`COALESCE(SUM(CASE WHEN status IN ('paid', 'pending_payment') THEN quantity ELSE 0 END), 0)::int`,
@@ -149,23 +147,23 @@ router.delete("/baker/baking-days/:id", requireBakerAuth, async (req, res): Prom
     return;
   }
 
-  if (!isAtLeast48HoursAway(existing.date)) {
-    res.status(422).json({ error: "Cannot delete a baking day that is less than 48 hours away." });
-    return;
-  }
-
-  const [linkedOrders] = await db
-    .select({ count: sql<number>`COUNT(*)` })
+  const [paidOrders] = await db
+    .select({ count: sql<number>`COUNT(*)::int` })
     .from(ordersTable)
     .where(and(
       eq(ordersTable.bakingDayId, params.data.id),
-      sql`${ordersTable.status} NOT IN ('cancelled')`
+      eq(ordersTable.status, "paid")
     ));
 
-  if (Number(linkedOrders?.count ?? 0) > 0) {
-    res.status(422).json({ error: "Cannot delete a baking day that has active orders. Cancel all orders first." });
+  if (Number(paidOrders?.count ?? 0) > 0) {
+    res.status(422).json({ error: `Cannot delete: ${paidOrders.count} paid order(s) exist for this day.` });
     return;
   }
+
+  await db.delete(ordersTable).where(and(
+    eq(ordersTable.bakingDayId, params.data.id),
+    sql`${ordersTable.status} != 'paid'`
+  ));
 
   await db.delete(bakingDaysTable).where(eq(bakingDaysTable.id, params.data.id));
   res.sendStatus(204);

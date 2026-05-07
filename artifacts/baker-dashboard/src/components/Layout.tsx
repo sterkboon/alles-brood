@@ -50,7 +50,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         <div className="flex items-center gap-2.5 px-4 py-4 border-b border-sidebar-border">
           <img src={`${basePath}/logo.svg`} alt="Logo" className="w-7 h-7" />
           <div className="leading-tight">
-            <div className="text-sm font-bold text-sidebar-foreground">Alles van Afrika</div>
+            <div className="text-sm font-bold text-sidebar-foreground">Christian se Brot</div>
             <div className="text-xs text-muted-foreground">Baker's Dashboard</div>
           </div>
         </div>
@@ -82,7 +82,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           >
             {sidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
-          <span className="font-semibold text-sm">Alles van Afrika</span>
+          <span className="font-semibold text-sm">Christian se Brot</span>
         </header>
 
         <main className="flex-1 p-4 md:p-6 overflow-auto">

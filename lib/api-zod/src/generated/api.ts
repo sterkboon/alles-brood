@@ -160,19 +160,21 @@ export const DeleteBakingDayParams = zod.object({
  */
 export const ListOrdersQueryParams = zod.object({
   bakingDayId: zod.coerce.number().optional(),
-  status: zod.enum(["pending_payment", "paid", "cancelled"]).optional(),
+  status: zod.enum(["pending_payment", "paid", "cancelled", "abandoned"]).optional(),
 });
 
 export const ListOrdersResponseItem = zod.object({
   id: zod.number(),
+  orderNumber: zod.string().nullish(),
   whatsappNumber: zod.string(),
   customerName: zod.string().nullish(),
   bakingDayId: zod.number(),
   bakingDayDate: zod.string(),
   quantity: zod.number(),
-  status: zod.enum(["pending_payment", "paid", "cancelled"]),
+  status: zod.enum(["pending_payment", "paid", "cancelled", "abandoned"]),
   yocoPaymentId: zod.string().nullish(),
   yocoCheckoutId: zod.string().nullish(),
+  feedback: zod.string().nullish(),
   totalAmountCents: zod.number(),
   productName: zod.string(),
   createdAt: zod.string(),

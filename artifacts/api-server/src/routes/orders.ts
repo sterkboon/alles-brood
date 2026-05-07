@@ -29,6 +29,18 @@ function parseCreateOrderBody(body: unknown): { whatsappNumber: string; customer
   };
 }
 
+async function generateOrderNumber(): Promise<string> {
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const num = String(Math.floor(100000 + Math.random() * 900000));
+    const [existing] = await db
+      .select({ id: ordersTable.id })
+      .from(ordersTable)
+      .where(eq(ordersTable.orderNumber, num));
+    if (!existing) return num;
+  }
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
+
 router.get("/baker/orders", requireBakerAuth, async (req, res): Promise<void> => {
   const query = ListOrdersQueryParams.safeParse(req.query);
   if (!query.success) {
@@ -40,11 +52,12 @@ router.get("/baker/orders", requireBakerAuth, async (req, res): Promise<void> =>
 
   const conditions = [];
   if (bakingDayId) conditions.push(eq(ordersTable.bakingDayId, bakingDayId));
-  if (status) conditions.push(eq(ordersTable.status, status as "pending_payment" | "paid" | "cancelled"));
+  if (status) conditions.push(eq(ordersTable.status, status as "pending_payment" | "paid" | "cancelled" | "abandoned"));
 
   const rows = await db
     .select({
       id: ordersTable.id,
+      orderNumber: ordersTable.orderNumber,
       whatsappNumber: ordersTable.whatsappNumber,
       customerName: ordersTable.customerName,
       bakingDayId: ordersTable.bakingDayId,
@@ -53,6 +66,7 @@ router.get("/baker/orders", requireBakerAuth, async (req, res): Promise<void> =>
       status: ordersTable.status,
       yocoPaymentId: ordersTable.yocoPaymentId,
       yocoCheckoutId: ordersTable.yocoCheckoutId,
+      feedback: ordersTable.feedback,
       productName: productsTable.name,
       priceCents: productsTable.priceCents,
       createdAt: ordersTable.createdAt,
@@ -84,6 +98,7 @@ router.get("/baker/orders/:id", requireBakerAuth, async (req, res): Promise<void
   const [row] = await db
     .select({
       id: ordersTable.id,
+      orderNumber: ordersTable.orderNumber,
       whatsappNumber: ordersTable.whatsappNumber,
       customerName: ordersTable.customerName,
       bakingDayId: ordersTable.bakingDayId,
@@ -92,6 +107,7 @@ router.get("/baker/orders/:id", requireBakerAuth, async (req, res): Promise<void
       status: ordersTable.status,
       yocoPaymentId: ordersTable.yocoPaymentId,
       yocoCheckoutId: ordersTable.yocoCheckoutId,
+      feedback: ordersTable.feedback,
       productName: productsTable.name,
       priceCents: productsTable.priceCents,
       createdAt: ordersTable.createdAt,
@@ -149,7 +165,7 @@ router.post("/baker/orders", requireBakerAuth, async (req, res): Promise<void> =
 
   const remaining = bakingDay.totalAvailable - Number(bakingDay.pendingLoaves) - Number(bakingDay.paidLoaves);
   if (quantity > remaining) {
-    res.status(422).json({ error: `Only ${remaining} loaf(ves) remaining for that day.` });
+    res.status(422).json({ error: `Only ${remaining} loaves remaining for that day.` });
     return;
   }
 
@@ -183,10 +199,13 @@ router.post("/baker/orders", requireBakerAuth, async (req, res): Promise<void> =
     return;
   }
 
+  const orderNumber = await generateOrderNumber();
+
   const [order] = await db.transaction(async (tx) => {
     const [inserted] = await tx
       .insert(ordersTable)
       .values({
+        orderNumber,
         whatsappNumber,
         customerName: customerName ?? null,
         bakingDayId,
@@ -215,7 +234,7 @@ router.post("/baker/orders", requireBakerAuth, async (req, res): Promise<void> =
     logger.error({ err }, "Failed to send WhatsApp notification for manual order (order still created)");
   }
 
-  logger.info({ orderId: order.id, whatsappNumber }, "Manual order created by baker");
+  logger.info({ orderId: order.id, orderNumber, whatsappNumber }, "Manual order created by baker");
 
   res.status(201).json({
     ...order,
@@ -251,8 +270,6 @@ router.patch("/baker/orders/:id/cancel", requireBakerAuth, async (req, res): Pro
   }
 
   const [updated] = await db.transaction(async (tx) => {
-    // Only decrement reserved_count if cancelling a pending order.
-    // Paid orders were already decremented from reserved_count at payment time.
     if (order.status === "pending_payment") {
       await tx
         .update(bakingDaysTable)

@@ -6,12 +6,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ShoppingBag, CheckCircle, Clock, Plus, Calendar } from "lucide-react";
+import { CheckCircle, AlertCircle, Plus, Calendar, ShoppingBag } from "lucide-react";
 import { format, parseISO } from "date-fns";
 
-function StatCard({ title, value, icon: Icon, color }: {
+function StatCard({ title, value, sub, icon: Icon, color }: {
   title: string;
   value: number | undefined;
+  sub?: string;
   icon: React.ComponentType<{ className?: string }>;
   color: string;
 }) {
@@ -28,6 +29,7 @@ function StatCard({ title, value, icon: Icon, color }: {
           ) : (
             <p className="text-2xl font-bold text-foreground">{value}</p>
           )}
+          {sub && <p className="text-xs text-muted-foreground">{sub}</p>}
         </div>
       </CardContent>
     </Card>
@@ -37,6 +39,7 @@ function StatCard({ title, value, icon: Icon, color }: {
 function statusBadge(status: string) {
   if (status === "paid") return <Badge className="bg-green-100 text-green-800 border-green-200">Paid</Badge>;
   if (status === "pending_payment") return <Badge className="bg-amber-100 text-amber-800 border-amber-200">Pending</Badge>;
+  if (status === "abandoned") return <Badge className="bg-red-100 text-red-800 border-red-200">Abandoned</Badge>;
   return <Badge variant="outline" className="text-muted-foreground">Cancelled</Badge>;
 }
 
@@ -67,10 +70,21 @@ export default function DashboardPage() {
           </Button>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <StatCard title="Orders Today" value={data?.totalOrdersToday} icon={ShoppingBag} color="bg-primary" />
-          <StatCard title="Paid Today" value={data?.paidToday} icon={CheckCircle} color="bg-green-600" />
-          <StatCard title="Pending Today" value={data?.pendingToday} icon={Clock} color="bg-amber-500" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <StatCard
+            title="Paid Orders Today"
+            value={data?.paidToday}
+            sub={data?.paidTodayLoaves !== undefined ? `${data.paidTodayLoaves} loaves` : undefined}
+            icon={CheckCircle}
+            color="bg-green-600"
+          />
+          <StatCard
+            title="Abandoned Orders"
+            value={data?.abandonedTotal}
+            sub="payment not completed"
+            icon={AlertCircle}
+            color="bg-red-500"
+          />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -138,6 +152,11 @@ export default function DashboardPage() {
                       <div>
                         <p className="text-sm font-medium">
                           {order.customerName || order.whatsappNumber}
+                          {(order as { orderNumber?: string | null }).orderNumber && (
+                            <span className="ml-2 text-xs font-mono text-muted-foreground">
+                              #{(order as { orderNumber?: string | null }).orderNumber}
+                            </span>
+                          )}
                         </p>
                         <p className="text-xs text-muted-foreground">
                           {order.quantity}× {order.productName} · {format(parseISO(order.bakingDayDate), "d MMM")}

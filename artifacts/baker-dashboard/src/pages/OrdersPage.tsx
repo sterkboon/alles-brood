@@ -10,12 +10,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, X } from "lucide-react";
+import { Plus, X, MessageSquare } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import type { ListOrdersStatus } from "@workspace/api-client-react";
 
 type Order = {
   id: number;
+  orderNumber?: string | null;
   whatsappNumber: string;
   customerName?: string | null;
   bakingDayDate: string;
@@ -24,6 +25,7 @@ type Order = {
   productName: string;
   totalAmountCents: number;
   yocoPaymentId?: string | null;
+  feedback?: string | null;
   createdAt: string;
 };
 
@@ -32,6 +34,8 @@ function statusBadge(status: string) {
     return <Badge className="bg-green-100 text-green-800 border border-green-200">Paid</Badge>;
   if (status === "pending_payment")
     return <Badge className="bg-amber-100 text-amber-800 border border-amber-200">Pending Payment</Badge>;
+  if (status === "abandoned")
+    return <Badge className="bg-red-100 text-red-800 border border-red-200">Abandoned</Badge>;
   return (
     <Badge variant="outline" className="text-muted-foreground border-border">
       Cancelled
@@ -42,7 +46,7 @@ function statusBadge(status: string) {
 export default function OrdersPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [tab, setTab] = useState<"all" | "pending_payment" | "paid" | "cancelled">("all");
+  const [tab, setTab] = useState<"all" | "pending_payment" | "paid" | "cancelled" | "abandoned">("all");
   const [cancelTarget, setCancelTarget] = useState<Order | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
 
@@ -68,6 +72,14 @@ export default function OrdersPage() {
 
   const rows = (orders ?? []) as Order[];
 
+  const tabLabel = {
+    all: "All Orders",
+    pending_payment: "Pending Payment",
+    paid: "Paid Orders",
+    abandoned: "Abandoned",
+    cancelled: "Cancelled Orders",
+  }[tab];
+
   return (
     <Layout>
       <div className="space-y-6 max-w-4xl">
@@ -87,6 +99,7 @@ export default function OrdersPage() {
             <TabsTrigger value="all">All</TabsTrigger>
             <TabsTrigger value="pending_payment">Pending</TabsTrigger>
             <TabsTrigger value="paid">Paid</TabsTrigger>
+            <TabsTrigger value="abandoned">Abandoned</TabsTrigger>
             <TabsTrigger value="cancelled">Cancelled</TabsTrigger>
           </TabsList>
         </Tabs>
@@ -94,7 +107,7 @@ export default function OrdersPage() {
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base">
-              {tab === "all" ? "All Orders" : tab === "pending_payment" ? "Pending Payment" : tab === "paid" ? "Paid Orders" : "Cancelled Orders"}
+              {tabLabel}
               {rows.length > 0 && (
                 <span className="ml-2 text-sm font-normal text-muted-foreground">({rows.length})</span>
               )}
@@ -121,6 +134,11 @@ export default function OrdersPage() {
                         {order.customerName && (
                           <span className="text-xs text-muted-foreground">{order.whatsappNumber}</span>
                         )}
+                        {order.orderNumber && (
+                          <span className="text-xs font-mono bg-muted px-1.5 py-0.5 rounded text-muted-foreground">
+                            #{order.orderNumber}
+                          </span>
+                        )}
                         {statusBadge(order.status)}
                       </div>
                       <div className="mt-1 text-xs text-muted-foreground space-y-0.5">
@@ -134,6 +152,12 @@ export default function OrdersPage() {
                           {" · "}
                           Ordered {format(parseISO(order.createdAt), "d MMM yyyy, HH:mm")}
                         </p>
+                        {order.feedback && (
+                          <div className="flex items-start gap-1 mt-1.5 text-foreground/70">
+                            <MessageSquare className="w-3 h-3 mt-0.5 shrink-0 text-primary" />
+                            <span className="italic">"{order.feedback}"</span>
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -163,7 +187,7 @@ export default function OrdersPage() {
             <AlertDialogDescription>
               This will cancel the order for{" "}
               <strong>{cancelTarget?.customerName || cancelTarget?.whatsappNumber}</strong>{" "}
-              ({cancelTarget?.quantity}× loaf for{" "}
+              ({cancelTarget?.quantity}× loaves for{" "}
               {cancelTarget ? format(parseISO(cancelTarget.bakingDayDate), "d MMM yyyy") : ""}).
               The reserved slot will be released.
             </AlertDialogDescription>

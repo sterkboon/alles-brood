@@ -72,14 +72,13 @@ router.post("/yoco/webhook", async (req, res): Promise<void> => {
       .update(ordersTable)
       .set({ status: "paid", yocoPaymentId: paymentId, updatedAt: new Date() })
       .where(eq(ordersTable.id, order.id));
-    // reserved_count tracks pending orders only; decrement now that payment is confirmed.
     await tx
       .update(bakingDaysTable)
       .set({ reservedCount: sql`${bakingDaysTable.reservedCount} - ${order.quantity}` })
       .where(eq(bakingDaysTable.id, order.bakingDayId));
     await tx
       .update(conversationStateTable)
-      .set({ step: "idle", pendingOrderData: null, updatedAt: new Date() })
+      .set({ step: "awaiting_feedback", pendingOrderData: { orderId: order.id, orderNumber: order.orderNumber }, updatedAt: new Date() })
       .where(eq(conversationStateTable.whatsappNumber, order.whatsappNumber));
   });
 
@@ -98,10 +97,14 @@ router.post("/yoco/webhook", async (req, res): Promise<void> => {
       })
     : "your baking day";
 
+  const pickupAddress = process.env.PICKUP_ADDRESS || "to be confirmed by baker";
+  const orderNumber = order.orderNumber ?? "N/A";
+  const totalFormatted = (order.quantity * 12000 / 100).toFixed(2);
+
   try {
     await sendWhatsAppMessage(
       order.whatsappNumber,
-      `🎉 Payment received! Your order is confirmed.\n\n📅 *${dateFormatted}*\n🍞 *${order.quantity}* sourdough loaf(ves)\n\nWe'll see you then! Thank you for your order. 🙏`
+      `🎉 Payment received! Your order is confirmed.\n\n🔖 *Order #${orderNumber}*\n📅 *${dateFormatted}*\n🍞 *${order.quantity}* sourdough loaves\n💰 *R${totalFormatted}*\n📍 *${pickupAddress}*\n⏰ *Collection: 7:30am – 10:00am*\n\nWe'd love to hear from you! Reply with any feedback or notes for your order, or type *skip* to skip. 😊`
     );
   } catch (err) {
     logger.error({ err }, "Failed to send payment confirmation WhatsApp");
