@@ -107,7 +107,7 @@ router.post("/yoco/webhook", async (req, res): Promise<void> => {
   try {
     await sendWhatsAppMessage(
       order.whatsappNumber,
-      `Payment received. Thank you.\n\nYour order is confirmed!✅.\n\n🔖 *Order #${orderNumber}*\n📅 *${dateFormatted}*\n🍞 *${order.quantity}* ${order.quantity > 1 ? "sourdough breads": "sourdough bread"}  \n💰 *R${totalFormatted}*\n📍 *${pickupAddress}*\n⏰ *Collection: 8:00am – 10:00am*\n\nSee you soon 🍞 😊`
+      `Payment received. Thank you.\n\nYour order is confirmed! ✅\n\n🔖 *Order #${orderNumber}*\n📅 *${dateFormatted}*\n🍞 *${order.quantity}* ${order.quantity > 1 ? "sourdough breads": "sourdough bread"}  \n💰 *R${totalFormatted}*\n📍 *${pickupAddress}*\n⏰ *Collection: 8:00am – 10:00am*\n\nSee you soon 🍞 😊`
     );
   } catch (err) {
     logger.error({ err }, "Failed to send payment confirmation WhatsApp");

@@ -196,11 +196,11 @@ export async function notifyCustomerManualOrder({
   const date = new Date(bakingDayDate + "T00:00:00");
   const formatted = date.toLocaleDateString("en-ZA", { weekday: "long", day: "numeric", month: "long" });
   const totalFormatted = (totalAmountCents / 100).toFixed(2);
-  const greeting = customerName ? `Hi ${customerName}! ` : "Hi! ";
+  const greeting = customerName ? `Hi ${customerName}!` : "Hi!";
 
   await sendWhatsAppMessage(
     phoneNumber,
-    `${greeting}👋 Your sourdough order has been placed by the baker!\n\n📅 *Pickup: ${formatted}*\n🍞 *${quantity}* sourdough loaves\n💰 *R${totalFormatted}* total\n\n⚠️ Your order will only be *confirmed once payment is received*. The pickup address will be shared after payment.\n\nPlease complete your payment here:\n${paymentLink}\n\n_Reply *cancel* to cancel, or *order* to start a new order._`
+    `${greeting}👋\n\n Your sourdough order has been placed by the baker!\n\n📅 *Collection: ${formatted}*\n🍞 *${quantity}* sourdough breads\n💰 *R${totalFormatted}* total\n\n📍Order confirmation to follow on payment\n\nPlease complete your payment here:\n${paymentLink}\n\n_To stop please reply *cancel*_`
   );
 
   await updateState(phoneNumber, "awaiting_payment", {
@@ -254,7 +254,7 @@ async function handleIdle(phoneNumber: string): Promise<void> {
 
   await sendWhatsAppMessage(
     phoneNumber,
-    `Hi! This is *Christian se brot* 😊\n\nHere are my bakes for this week 🍞🥖:\n\n${daysList}\n\nTo order, reply with the *number* for the collection day of your choice.✏️.\n\n Collection address to be confirmed.\n\n _Reply *cancel* anytime to stop._`
+    `Hi! This is *Christian se brot* 😊\n\nHere are my bakes for this week 🍞🥖\n\n${daysList}\n\nTo order reply with the *number* for the collection day of your choice ✏️\n\n Collection address to be confirmed.\n\n _Reply *cancel* anytime to stop._`
   );
 
   await updateState(phoneNumber, "awaiting_date", { availableDays });
@@ -306,7 +306,7 @@ async function handleDateSelection(phoneNumber: string, input: string, _pending:
 
   await sendWhatsAppMessage(
     phoneNumber,
-    `Great! 🍞 You've selected: \n\n*${formatted}*.\n\n*${chosen.productName}* — R${priceFormatted} each\n\nHow many sourdough breads would you like?  (max ${available} available)\n\n Reply with the number of breads you want.✏️`
+    `Great! 🍞 \n\n*You've selected: \n\n*${formatted}*.\n\n*${chosen.productName}* — R${priceFormatted} each\n\nHow many sourdough breads would you like?  (max ${available} available)\n\n Reply with the number of breads you want ✏️`
   );
 }
 
