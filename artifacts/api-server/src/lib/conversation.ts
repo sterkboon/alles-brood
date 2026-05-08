@@ -434,7 +434,7 @@ async function handleQuantitySelection(phoneNumber: string, input: string, pendi
 
   await sendWhatsAppMessage(
     phoneNumber,
-    `Cool! Almost done.\n\n Here's your order summary: \n\n🔖 *Order Number #${orderNumber}*\n📅 *${pendingBakingDayDate ?? bakingDay.date}*\n🍞 *${quantity}* ${quantity > 1 ? "sourdough breads": "sourdough bread" }  \n💰 *R${totalFormatted}* total\n\nAddress for collection will be shared once payment is confirmed.\n\nPlease complete your payment here:\n${paymentLink}\n\n_Your order is reserved for 30 minutes. _To stop please reply *cancel*_`
+    `Cool! Almost done.\n\n Here's your order summary: \n\n🔖 *Order Number #${orderNumber}*\n📅 *${pendingBakingDayDate ?? bakingDay.date}*\n🍞 *${quantity}* ${quantity > 1 ? "sourdough breads": "sourdough bread" }  \n💰 *R${totalFormatted}* total\n\nAddress for collection will be shared once payment is confirmed.\n\nPlease complete your payment here:\n${paymentLink}\n\n_Your order is reserved for 30 minutes. To stop please reply *cancel*_`
   );
 }
 
