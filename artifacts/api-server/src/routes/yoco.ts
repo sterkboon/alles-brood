@@ -78,7 +78,7 @@ router.post("/yoco/webhook", async (req, res): Promise<void> => {
       .where(eq(bakingDaysTable.id, order.bakingDayId));
     await tx
       .update(conversationStateTable)
-      .set({ step: "awaiting_feedback", pendingOrderData: { orderId: order.id, orderNumber: order.orderNumber }, updatedAt: new Date() })
+      .set({ step: "idle", pendingOrderData: null, updatedAt: new Date() })
       .where(eq(conversationStateTable.whatsappNumber, order.whatsappNumber));
   });
 

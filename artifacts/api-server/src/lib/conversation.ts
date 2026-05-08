@@ -128,11 +128,6 @@ export async function handleIncomingMessage(from: string, body: string): Promise
     return;
   }
 
-  if (state.step === "awaiting_feedback") {
-    await handleFeedback(phoneNumber, body.trim(), state.pendingOrderData as PendingOrderData);
-    return;
-  }
-
   if (state.step === "awaiting_payment") {
     if (trimmed === "hi" || trimmed === "hello" || trimmed === "order") {
       const pendingOrder = await db
@@ -182,25 +177,6 @@ export async function handleIncomingMessage(from: string, body: string): Promise
   await handleIdle(phoneNumber);
 }
 
-async function handleFeedback(phoneNumber: string, message: string, pendingData: PendingOrderData | null): Promise<void> {
-  await updateState(phoneNumber, "idle", null);
-
-  if (message.toLowerCase() === "skip") {
-    await sendWhatsAppMessage(phoneNumber, "No problem! See you on collection day. 🍞");
-    return;
-  }
-
-  const orderId = pendingData?.orderId;
-  if (orderId) {
-    await db
-      .update(ordersTable)
-      .set({ feedback: message, updatedAt: new Date() })
-      .where(eq(ordersTable.id, orderId));
-    logger.info({ orderId, phoneNumber }, "Customer feedback saved");
-  }
-
-  await sendWhatsAppMessage(phoneNumber, "Thank you for your feedback! We really appreciate it. See you on collection day! 🍞");
-}
 
 export async function notifyCustomerManualOrder({
   phoneNumber,
