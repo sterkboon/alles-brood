@@ -24,7 +24,6 @@ router.post("/whatsapp/webhook", async (req, res): Promise<void> => {
   }
 
   const from: string = req.body?.From ?? "";
-  const to: string = req.body?.To ?? "";
   const body: string = req.body?.Body ?? "";
 
   if (!from) {
@@ -33,14 +32,14 @@ router.post("/whatsapp/webhook", async (req, res): Promise<void> => {
   }
 
   const phoneNumber = from.replace("whatsapp:", "");
-  logger.info({ from: phoneNumber, to, body: body.slice(0, 50) }, "Incoming WhatsApp message");
+  logger.info({ from: phoneNumber, body: body.slice(0, 50) }, "Incoming WhatsApp message");
 
   res.set("Content-Type", "text/xml");
   res.send("<Response></Response>");
 
   setImmediate(async () => {
     try {
-      await handleIncomingMessage(from, body, to);
+      await handleIncomingMessage(from, body);
     } catch (err) {
       logger.error({ err }, "Error handling WhatsApp message");
     }

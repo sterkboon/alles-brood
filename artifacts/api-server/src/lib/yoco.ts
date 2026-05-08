@@ -13,7 +13,10 @@ export async function createYocoCheckout(
   currency: string,
   metadata: Record<string, string>
 ): Promise<YocoCheckout> {
-  const secretKey = process.env.YOCO_SECRET_KEY_DEV ?? process.env.YOCO_SECRET_KEY;
+  const secretKey =
+    process.env.NODE_ENV !== "production"
+      ? (process.env.YOCO_SECRET_KEY_DEV ?? process.env.YOCO_SECRET_KEY)
+      : process.env.YOCO_SECRET_KEY;
   if (!secretKey) {
     throw new Error("YOCO_SECRET_KEY not configured");
   }

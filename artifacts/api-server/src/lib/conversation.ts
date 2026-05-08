@@ -10,16 +10,6 @@ import { sendWhatsAppMessage } from "./twilio";
 import { createYocoCheckout } from "./yoco";
 import { logger } from "./logger";
 
-const senderNumberByCustomer = new Map<string, string>();
-
-function getSenderNumber(phoneNumber: string): string | undefined {
-  return senderNumberByCustomer.get(phoneNumber) ?? process.env.TWILIO_WHATSAPP_NUMBER ?? undefined;
-}
-
-async function reply(phoneNumber: string, message: string): Promise<void> {
-  await sendWhatsAppMessage(phoneNumber, message, getSenderNumber(phoneNumber));
-}
-
 async function generateOrderNumber(): Promise<string> {
   for (let attempt = 0; attempt < 10; attempt++) {
     const num = String(Math.floor(100000 + Math.random() * 900000));
@@ -90,12 +80,8 @@ async function cancelPendingOrder(orderId: number, bakingDayId: number, quantity
   return cancelled;
 }
 
-export async function handleIncomingMessage(from: string, body: string, businessNumber?: string): Promise<void> {
+export async function handleIncomingMessage(from: string, body: string): Promise<void> {
   const phoneNumber = from.replace("whatsapp:", "");
-
-  if (businessNumber) {
-    senderNumberByCustomer.set(phoneNumber, businessNumber);
-  }
   const trimmed = body.trim().toLowerCase();
 
   let state = await db
@@ -138,7 +124,7 @@ export async function handleIncomingMessage(from: string, body: string, business
     }
 
     await updateState(phoneNumber, "idle", null);
-    await reply(phoneNumber, "No problem! Say hi here anytime to check out my weekly bakes 🍞");
+    await sendWhatsAppMessage(phoneNumber, "No problem! Say hi here anytime to check out my weekly bakes 🍞");
     return;
   }
 

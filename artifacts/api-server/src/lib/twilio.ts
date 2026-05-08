@@ -16,8 +16,12 @@ export function getTwilioClient(): ReturnType<typeof twilio> {
   return twilioClient;
 }
 
-export async function sendWhatsAppMessage(to: string, body: string, from?: string): Promise<void> {
-  const fromNumber = from ?? process.env.TWILIO_WHATSAPP_NUMBER;
+export async function sendWhatsAppMessage(to: string, body: string): Promise<void> {
+  const fromNumber =
+    process.env.NODE_ENV !== "production"
+      ? (process.env.TWILIO_SANDBOX_NUMBER ?? process.env.TWILIO_WHATSAPP_NUMBER)
+      : process.env.TWILIO_WHATSAPP_NUMBER;
+
   if (!fromNumber) {
     logger.warn("TWILIO_WHATSAPP_NUMBER not set");
     return;
