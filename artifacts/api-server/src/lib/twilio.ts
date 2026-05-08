@@ -16,15 +16,15 @@ export function getTwilioClient(): ReturnType<typeof twilio> {
   return twilioClient;
 }
 
-export async function sendWhatsAppMessage(to: string, body: string): Promise<void> {
-  const from = process.env.TWILIO_WHATSAPP_NUMBER;
-  if (!from) {
+export async function sendWhatsAppMessage(to: string, body: string, from?: string): Promise<void> {
+  const fromNumber = from ?? process.env.TWILIO_WHATSAPP_NUMBER;
+  if (!fromNumber) {
     logger.warn("TWILIO_WHATSAPP_NUMBER not set");
     return;
   }
   try {
     const client = getTwilioClient();
-    const formattedFrom = from.startsWith("whatsapp:") ? from : `whatsapp:${from}`;
+    const formattedFrom = fromNumber.startsWith("whatsapp:") ? fromNumber : `whatsapp:${fromNumber}`;
     const formattedTo = to.startsWith("whatsapp:") ? to : `whatsapp:${to}`;
     await client.messages.create({
       from: formattedFrom,
