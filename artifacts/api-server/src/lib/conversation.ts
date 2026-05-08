@@ -124,7 +124,7 @@ export async function handleIncomingMessage(from: string, body: string): Promise
     }
 
     await updateState(phoneNumber, "idle", null);
-    await sendWhatsAppMessage(phoneNumber, "No problem! Your order has been cancelled. Reply *order* anytime to start a new order.");
+    await sendWhatsAppMessage(phoneNumber, "No problem! Say hi here anytime to check out my weekly bakes 🍞");
     return;
   }
 
@@ -272,13 +272,13 @@ async function handleIdle(phoneNumber: string): Promise<void> {
       const date = new Date(d.date + "T00:00:00");
       const formatted = date.toLocaleDateString("en-ZA", { weekday: "long", day: "numeric", month: "long" });
       const available = d.totalAvailable - Number(d.pendingLoaves) - Number(d.paidLoaves);
-      return `${i + 1}. *${formatted}* — ${available} loaves available`;
+      return `${i + 1}. *${formatted}* — ${available} sourdough breads available`;
     })
     .join("\n");
 
   await sendWhatsAppMessage(
     phoneNumber,
-    `Hi! 👋 Welcome to *Christian se Brot*!\n\nHere are the upcoming baking days:\n\n${daysList}\n\nReply with the *number* of the date you'd like to order for.\n\n_Reply *cancel* anytime to stop._`
+    `Hi! This is *Christian se brot* 😊\n\nHere are my bakes for this week 🍞🥖:\n\n${daysList}\n\nTo order, reply with the *number* for the collection day of your choice.✏️.\n\n Collection address to be confirmed.\n\n _Reply *cancel* anytime to stop._`
   );
 
   await updateState(phoneNumber, "awaiting_date", { availableDays });
@@ -330,7 +330,7 @@ async function handleDateSelection(phoneNumber: string, input: string, _pending:
 
   await sendWhatsAppMessage(
     phoneNumber,
-    `Great choice! 🍞 You've selected *${formatted}*.\n\n*${chosen.productName}* — R${priceFormatted} each\n\nHow many loaves would you like? (max ${available} available)\n\nReply with a *number*.`
+    `Great! 🍞 You've selected: \n\n*${formatted}*.\n\n*${chosen.productName}* — R${priceFormatted} each\n\nHow many sourdough breads would you like?  (max ${available} available)\n\n Reply with the number of breads you want.✏️`
   );
 }
 
@@ -346,7 +346,7 @@ async function handleQuantitySelection(phoneNumber: string, input: string, pendi
 
   const quantity = parseInt(input, 10);
   if (isNaN(quantity) || quantity < 1) {
-    await sendWhatsAppMessage(phoneNumber, "Please reply with a valid number of loaves (e.g. 1, 2, 3...).");
+    await sendWhatsAppMessage(phoneNumber, "Please reply with a valid number of breads (e.g. 1, 2, 3...).");
     return;
   }
 
@@ -375,7 +375,7 @@ async function handleQuantitySelection(phoneNumber: string, input: string, pendi
   if (quantity > remaining) {
     await sendWhatsAppMessage(
       phoneNumber,
-      `Sorry, only *${remaining}* loaves are still available for that day. Please choose a smaller quantity.`
+      `Sorry, only *${remaining}* breads are still available for that day. Please choose a smaller quantity.`
     );
     return;
   }
@@ -434,7 +434,7 @@ async function handleQuantitySelection(phoneNumber: string, input: string, pendi
 
   await sendWhatsAppMessage(
     phoneNumber,
-    `✅ Almost done! Here's your order summary:\n\n🔖 *Order #${orderNumber}*\n📅 *${pendingBakingDayDate ?? bakingDay.date}*\n🍞 *${quantity}* sourdough loaves\n💰 *R${totalFormatted}* total\n\nThe pickup address will be shared once payment is confirmed.\n\nPlease complete your payment here:\n${paymentLink}\n\n_Your spot is held for 30 minutes. Reply *cancel* to cancel._`
+    `Cool! Almost done.\n\n Here's your order summary: \n\n🔖 *Order Number #${orderNumber}*\n📅 *${pendingBakingDayDate ?? bakingDay.date}*\n🍞 *${quantity}* ${quantity > 1 ? "sourdough breads": "sourdough bread" }  \n💰 *R${totalFormatted}* total\n\nAddress for collection will be shared once payment is confirmed.\n\nPlease complete your payment here:\n${paymentLink}\n\n_Your order is reserved for 30 minutes. _To stop please reply *cancel*_`
   );
 }
 
