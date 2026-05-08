@@ -8,7 +8,10 @@ import { logger } from "../lib/logger";
 const router: IRouter = Router();
 
 router.post("/yoco/webhook", async (req, res): Promise<void> => {
-  const webhookSecret = process.env.YOCO_WEBHOOK_SECRET;
+  const webhookSecret =
+    process.env.NODE_ENV !== "production"
+      ? (process.env.YOCO_WEBHOOK_SECRET_DEV ?? process.env.YOCO_WEBHOOK_SECRET)
+      : process.env.YOCO_WEBHOOK_SECRET;
 
   if (webhookSecret) {
     const rawBody: Buffer | undefined = (req as unknown as { rawBody?: Buffer }).rawBody;

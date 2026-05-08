@@ -45,6 +45,7 @@ PICKUP_ADDRESS = "15 Norman Road, Hout Bay"
 [userenv.development]
 TWILIO_SANDBOX_NUMBER = "+14155238886"
 YOCO_SECRET_KEY_DEV = "sk_test_faa65db63meWQQ1589144999d62f"
+YOCO_WEBHOOK_SECRET_DEV = "whsec_RjM1NzNBNzc3ODA5NDQ0OTBGRjE0MzdBRTQ0NzBEMjQ="
 
 [nix]
 channel = "stable-25_05"
