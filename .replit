@@ -42,5 +42,9 @@ VITE_CLERK_PUBLISHABLE_KEY = "pk_test_dmFsdWVkLW1hc3RvZG9uLTY0LmNsZXJrLmFjY291bn
 BAKER_EMAIL = "christian@allesvanafrika.co.za"
 PICKUP_ADDRESS = "15 Norman Road, Hout Bay"
 
+[userenv.development]
+TWILIO_SANDBOX_NUMBER = "+14155238886"
+YOCO_SECRET_KEY_DEV = "sk_test_faa65db63meWQQ1589144999d62f"
+
 [nix]
 channel = "stable-25_05"
