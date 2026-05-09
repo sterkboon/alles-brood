@@ -254,7 +254,7 @@ async function handleIdle(phoneNumber: string): Promise<void> {
 
   await sendWhatsAppMessage(
     phoneNumber,
-    `Hi! This is *Christian se brot* 😊\n\nHere are my bakes for this week 🍞🥖\n\n${daysList}\n\nTo order reply with the *number* for the collection day of your choice ✏️\n\n Collection address to be confirmed.\n\n _Reply *cancel* anytime to stop._`
+    `Hi! This is *Christian se Brot* 🍞 \n\nHere are my bakes for this week 🍞🥖\n\n${daysList}\n\nTo order reply with the *number* for the collection day of your choice ✏️\n\n Collection address to be confirmed.\n\n _Reply *cancel* anytime to stop._`
   );
 
   await updateState(phoneNumber, "awaiting_date", { availableDays });
